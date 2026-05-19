@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { api, type ApprovalDto, type DoctorReportDto, type EventEnvelope, type MessageDto, type ModelSettingsDto, type OrchestrationSnapshotDto, type ProjectDto, type SessionDto } from '../api'
 import { basenameFromPath } from '../format'
@@ -9,6 +10,7 @@ import ChatPanel from '../components/ChatPanel.vue'
 import ContextPanel from '../components/ContextPanel.vue'
 
 const router = useRouter()
+const { t } = useI18n()
 
 const projects = ref<ProjectDto[]>([])
 const sessions = ref<SessionDto[]>([])
@@ -21,6 +23,7 @@ const orchestration = ref<OrchestrationSnapshotDto | null>(null)
 
 const selectedProjectId = ref<string | null>(null)
 const selectedSessionId = ref<string | null>(null)
+const pendingSessionId = ref<string | null>(null)
 const draft = ref('')
 const modelBaseUrl = ref('https://api.openai.com/v1')
 const modelName = ref('gpt-5.4-mini')
@@ -34,6 +37,14 @@ const rightRailCollapsed = ref(false)
 const currentProject = computed(() => projects.value.find((project) => project.id === selectedProjectId.value) ?? null)
 const currentSession = computed(() => sessions.value.find((session) => session.id === selectedSessionId.value) ?? null)
 const recentEvents = computed(() => events.value.slice(-8).reverse())
+
+function generateTitle(content: string): string {
+  const trimmed = content.trim()
+  if (!trimmed) return t('chat.newChat')
+  const firstLine = trimmed.split('\n')[0]
+  if (firstLine.length <= 50) return firstLine
+  return firstLine.substring(0, 47) + '...'
+}
 
 async function run(label: string, action: () => Promise<void>) {
   busy.value = true
@@ -117,11 +128,21 @@ async function openProject() {
 }
 
 async function createSession(projectId: string) {
+  if (pendingSessionId.value) {
+    const existing = sessions.value.find((s) => s.id === pendingSessionId.value)
+    if (existing && existing.project_id === projectId) {
+      selectedSessionId.value = pendingSessionId.value
+      selectedProjectId.value = projectId
+      return
+    }
+  }
+
   await run('create session', async () => {
     const session = await api.createSession(projectId, 'Tinadec session')
     sessions.value = [session, ...sessions.value]
     selectedSessionId.value = session.id
     selectedProjectId.value = projectId
+    pendingSessionId.value = session.id
   })
 }
 
@@ -138,11 +159,13 @@ async function handleWelcomeSend(content: string) {
 async function handleSend(content: string) {
   await run('send message', async () => {
     let sessionId = selectedSessionId.value
+
     if (!sessionId && selectedProjectId.value) {
       const session = await api.createSession(selectedProjectId.value, 'Tinadec session')
       sessions.value = [session, ...sessions.value]
       selectedSessionId.value = session.id
       sessionId = session.id
+      pendingSessionId.value = session.id
     }
 
     if (!sessionId) {
@@ -151,6 +174,24 @@ async function handleSend(content: string) {
 
     draft.value = ''
     await api.postMessage(sessionId, content)
+
+    if (pendingSessionId.value === sessionId) {
+      const title = generateTitle(content)
+      try {
+        await api.updateSessionTitle(sessionId, title)
+        const idx = sessions.value.findIndex((s) => s.id === sessionId)
+        if (idx !== -1) {
+          sessions.value[idx] = { ...sessions.value[idx], title }
+        }
+      } catch {
+        const idx = sessions.value.findIndex((s) => s.id === sessionId)
+        if (idx !== -1) {
+          sessions.value[idx] = { ...sessions.value[idx], title }
+        }
+      }
+      pendingSessionId.value = null
+    }
+
     await loadMessagesAndApprovals()
   })
 }

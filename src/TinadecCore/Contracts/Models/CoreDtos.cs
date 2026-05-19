@@ -289,3 +289,38 @@ public sealed record OrchestrationSnapshotDto(
     IReadOnlyList<StepResultDto> StepResults,
     IReadOnlyList<ContextPackDto> ContextPacks,
     IReadOnlyList<SupervisionFindingDto> SupervisionFindings);
+
+public sealed record ToolDescriptorDto(
+    string Id,
+    string DisplayName,
+    string Domain,
+    string Source,
+    string Risk,
+    bool RequiresApproval,
+    string ExecuteEndpoint,
+    IReadOnlyList<string> Capabilities);
+
+public sealed record AgentWorkflowStepDto(
+    string Id,
+    string RunId,
+    string TaskNodeId,
+    string AgentId,
+    string AgentType,
+    string Runtime,
+    string PermissionMode,
+    IReadOnlyList<string> ToolIds,
+    string Status);
+
+public sealed record AgentWorkflowPlanDto(
+    string RunId,
+    string Runtime,
+    IReadOnlyList<AgentWorkflowStepDto> Steps);
+
+public sealed record CodeToolExecuteResultDto(
+    string ToolId,
+    string Status,
+    string Summary,
+    IReadOnlyList<string> Evidence,
+    IReadOnlyDictionary<string, object?> Data,
+    bool RequiresApproval,
+    string? ApprovalSummary);

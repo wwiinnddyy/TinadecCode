@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Tinadec.AgentCore.Storage;
 using Tinadec.Contracts.Models;
+using TinadecCore.Abstractions;
 
 namespace Tinadec.AgentCore.Services;
 
@@ -8,11 +9,13 @@ public sealed class OrchestratorService
 {
     private readonly CoreStore _store;
     private readonly EventHub _events;
+    private readonly IAgentWorkflowRuntime _workflowRuntime;
 
-    public OrchestratorService(CoreStore store, EventHub events)
+    public OrchestratorService(CoreStore store, EventHub events, IAgentWorkflowRuntime workflowRuntime)
     {
         _store = store;
         _events = events;
+        _workflowRuntime = workflowRuntime;
     }
 
     public OrchestrationSnapshotDto CreateRunForMessage(string sessionId, string userMessageId, string userContent)
@@ -51,6 +54,14 @@ public sealed class OrchestratorService
                 ["permission_mode"] = assignment.PermissionMode
             }, ["task.assign", "agent.execution"]);
         }
+
+        var workflow = _workflowRuntime.Compile(snapshot);
+        Publish("agent.workflow.compiled", sessionId, new JsonObject
+        {
+            ["run_id"] = workflow.RunId,
+            ["runtime"] = workflow.Runtime,
+            ["step_count"] = workflow.Steps.Count
+        }, ["agent.workflow", "runtime.microsoft-agent-framework"]);
 
         foreach (var result in snapshot.StepResults)
         {

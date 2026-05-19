@@ -44,7 +44,9 @@ const filteredProjects = computed(() => {
 })
 
 function getProjectSessions(projectId: string): SessionDto[] {
-  return props.sessions.filter((s) => s.project_id === projectId)
+  return props.sessions.filter(
+    (s) => s.project_id === projectId && s.title && s.title !== 'Tinadec session'
+  )
 }
 
 function isExpanded(projectId: string): boolean {
@@ -62,10 +64,8 @@ function toggleExpand(projectId: string) {
 }
 
 function handleProjectClick(projectId: string) {
+  toggleExpand(projectId)
   emit('select-project', projectId)
-  if (!isExpanded(projectId)) {
-    toggleExpand(projectId)
-  }
 }
 
 function handleSessionClick(sessionId: string) {
@@ -128,10 +128,7 @@ const tokenUsage = ref<number[]>([])
         :key="project.id"
         class="project-group"
       >
-        <div
-          class="project-row"
-          :class="{ active: project.id === selectedProjectId }"
-        >
+        <div class="project-row">
           <button
             class="project-row-main"
             @click="handleProjectClick(project.id)"

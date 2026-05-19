@@ -20,3 +20,5 @@ npm run dev
 ```
 
 OpenAPI docs are available from the gateway at `http://127.0.0.1:48730/docs`.
+
+For the standardized Core/Gateway/Desktop startup flow and troubleshooting checklist, see [docs/startup.md](docs/startup.md).

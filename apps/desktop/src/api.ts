@@ -377,6 +377,10 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ project_id: projectId, title })
   }),
+  updateSessionTitle: (sessionId: string, title: string) => request<SessionDto>(`/api/v1/sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title })
+  }),
   listMessages: (sessionId: string) => request<MessageDto[]>(`/api/v1/sessions/${sessionId}/messages`),
   postMessage: (sessionId: string, content: string) => request<MessageDto>(`/api/v1/sessions/${sessionId}/messages`, {
     method: 'POST',

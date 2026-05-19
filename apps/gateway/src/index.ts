@@ -2,6 +2,7 @@ import { cors } from '@elysiajs/cors';
 import { node } from '@elysiajs/node';
 import { swagger } from '@elysiajs/swagger';
 import { Elysia } from 'elysia';
+import { executeCodeTool, listCodeToolIds, type CodeToolExecuteRequest } from './codeTools.js';
 import { coreUrl, proxyJson, proxySse } from './coreClient.js';
 
 const port = Number(process.env.TINADEC_GATEWAY_PORT ?? 48730);
@@ -126,6 +127,21 @@ const app = new Elysia({ adapter: node() })
     const result = await proxyJson('/api/v1/tools/shell', { method: 'POST', body: body as Record<string, unknown> });
     setStatus(set, result.status);
     return result.data;
+  })
+  .get('/api/v1/code/tools', () => ({
+    tools: listCodeToolIds()
+  }))
+  .post('/api/v1/code/tools/:toolId/execute', ({ params, body, set }) => {
+    const result = executeCodeTool(params.toolId, body as CodeToolExecuteRequest);
+    if (!result) {
+      setStatus(set, 404);
+      return {
+        code: 'CODE_TOOL_NOT_FOUND',
+        message: 'Code tool was not found.'
+      };
+    }
+
+    return result;
   })
   .get('/api/v1/model-provider-templates', async ({ set }) => {
     const result = await proxyJson('/api/v1/model-provider-templates');

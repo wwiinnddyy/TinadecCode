@@ -86,6 +86,25 @@ public interface IOrchestrationRuntime
     IReadOnlyList<SupervisionFindingDto> ListSupervisionFindings(string sessionId);
 }
 
+public interface IAgentWorkflowRuntime
+{
+    AgentWorkflowPlanDto Compile(OrchestrationSnapshotDto snapshot);
+}
+
+public interface IToolRegistry
+{
+    IReadOnlyList<ToolDescriptorDto> ListTools(string? domain = null);
+    ToolDescriptorDto? Resolve(string toolId);
+}
+
+public interface ICodeToolClient
+{
+    Task<CodeToolExecuteResultDto> ExecuteAsync(
+        ToolDescriptorDto tool,
+        CodeToolExecuteRequest request,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IToolPermissionPolicy
 {
     bool RequiresApproval(string capability);

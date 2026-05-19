@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import {
   ArrowUp,
   ChevronDown,
@@ -16,7 +16,7 @@ import {
 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import type { ProjectDto } from '../api'
-import { UiButton } from '@/components/ui'
+import { UiButton, UiDropdownMenu, UiScrollArea } from '@/components/ui'
 
 const { t } = useI18n()
 
@@ -40,6 +40,9 @@ const draft = ref('')
 const showPlusMenu = ref(false)
 const showProjectDropdown = ref(false)
 const isChatMode = ref(false)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const projectTriggerRef = ref<HTMLElement | null>(null)
+const dropdownStyle = ref<Record<string, string>>({})
 
 const selectedProject = computed(() =>
   props.projects.find((p) => p.id === props.selectedProjectId) ?? null
@@ -53,6 +56,7 @@ function handleSend() {
   const content = draft.value.trim()
   if (!content) return
   draft.value = ''
+  resetTextareaHeight()
   emit('send', content)
 }
 
@@ -63,8 +67,41 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+function autoResize() {
+  const el = textareaRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+}
+
+function resetTextareaHeight() {
+  const el = textareaRef.value
+  if (!el) return
+  el.style.height = 'auto'
+}
+
 function toggleChatMode() {
   isChatMode.value = !isChatMode.value
+}
+
+function updateDropdownPosition() {
+  const trigger = projectTriggerRef.value
+  if (!trigger) return
+  const rect = trigger.getBoundingClientRect()
+  dropdownStyle.value = {
+    position: 'fixed',
+    top: `${rect.bottom + 6}px`,
+    left: `${rect.left}px`,
+    minWidth: `${Math.max(rect.width, 220)}px`,
+  }
+}
+
+async function toggleProjectDropdown() {
+  showProjectDropdown.value = !showProjectDropdown.value
+  if (showProjectDropdown.value) {
+    await nextTick()
+    updateDropdownPosition()
+  }
 }
 
 function selectProject(id: string) {
@@ -79,7 +116,7 @@ function openNewProject() {
 
 function handleClickOutside(event: MouseEvent) {
   const target = event.target as HTMLElement
-  if (!target.closest('.project-dropdown-wrapper')) {
+  if (!target.closest('.project-dropdown-trigger') && !target.closest('.project-dropdown-portal')) {
     showProjectDropdown.value = false
   }
   if (!target.closest('.welcome-dialog-plus-wrapper')) {
@@ -111,15 +148,12 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
       <div class="welcome-dialog">
         <div class="welcome-dialog-main">
           <div class="welcome-dialog-plus-wrapper">
-            <UiButton
-              variant="ghost"
-              size="icon"
-              class="welcome-dialog-plus"
-              @click="showPlusMenu = !showPlusMenu"
-            >
-              <Plus :size="18" />
-            </UiButton>
-            <div v-if="showPlusMenu" class="plus-menu">
+            <UiDropdownMenu v-model:open="showPlusMenu" class="plus-dropdown-menu">
+              <template #trigger>
+                <UiButton variant="ghost" size="icon" class="welcome-dialog-plus">
+                  <Plus :size="18" />
+                </UiButton>
+              </template>
               <button class="plus-menu-item" @click="emit('add-image'); showPlusMenu = false">
                 <Image :size="14" />
                 <span>{{ t('chat.addImage') }}</span>
@@ -132,14 +166,17 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
                 <Map :size="14" />
                 <span>{{ t('chat.planMode') }}</span>
               </button>
-            </div>
+            </UiDropdownMenu>
           </div>
 
-          <input
+          <textarea
+            ref="textareaRef"
             v-model="draft"
             class="welcome-dialog-input"
             :placeholder="t('chat.whatToDo')"
+            rows="1"
             @keydown="handleKeydown"
+            @input="autoResize"
           />
 
           <UiButton
@@ -155,38 +192,17 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 
         <div class="welcome-dialog-toolbar">
           <div class="toolbar-left">
-            <div class="project-dropdown-wrapper">
-              <button
-                class="project-dropdown-trigger"
-                @click="showProjectDropdown = !showProjectDropdown"
-              >
-                <FolderOpen :size="14" />
-                <span class="project-dropdown-label">
-                  {{ selectedProject ? selectedProject.name : t('chat.selectProject') }}
-                </span>
-                <ChevronDown :size="12" class="project-dropdown-chevron" />
-              </button>
-              <div v-if="showProjectDropdown" class="project-dropdown-menu">
-                <div v-if="projects.length > 0" class="project-dropdown-section">
-                  <div class="project-dropdown-section-title">{{ t('chat.openedProjects') }}</div>
-                  <button
-                    v-for="project in projects"
-                    :key="project.id"
-                    class="project-dropdown-item"
-                    :class="{ active: project.id === selectedProjectId }"
-                    @click="selectProject(project.id)"
-                  >
-                    <FolderOpen :size="14" />
-                    <span>{{ project.name }}</span>
-                  </button>
-                </div>
-                <div class="project-dropdown-divider" />
-                <button class="project-dropdown-item project-dropdown-new" @click="openNewProject">
-                  <FolderPlus :size="14" />
-                  <span>{{ t('chat.openNewProject') }}</span>
-                </button>
-              </div>
-            </div>
+            <button
+              ref="projectTriggerRef"
+              class="project-dropdown-trigger"
+              @click="toggleProjectDropdown"
+            >
+              <FolderOpen :size="14" />
+              <span class="project-dropdown-label">
+                {{ selectedProject ? selectedProject.name : t('chat.selectProject') }}
+              </span>
+              <ChevronDown :size="12" class="project-dropdown-chevron" />
+            </button>
             <UiButton variant="ghost" size="sm" class="toolbar-plan">
               <List :size="14" />
               <span>{{ t('chat.plan') }}</span>
@@ -201,5 +217,34 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="showProjectDropdown"
+        class="project-dropdown-portal"
+        :style="dropdownStyle"
+      >
+        <UiScrollArea v-if="projects.length > 0" class="project-dropdown-scroll">
+          <div class="project-dropdown-section">
+            <div class="project-dropdown-section-title">{{ t('chat.openedProjects') }}</div>
+            <button
+              v-for="project in projects"
+              :key="project.id"
+              class="project-dropdown-item"
+              :class="{ active: project.id === selectedProjectId }"
+              @click="selectProject(project.id)"
+            >
+              <FolderOpen :size="14" />
+              <span>{{ project.name }}</span>
+            </button>
+          </div>
+        </UiScrollArea>
+        <div class="project-dropdown-divider" />
+        <button class="project-dropdown-item project-dropdown-new" @click="openNewProject">
+          <FolderPlus :size="14" />
+          <span>{{ t('chat.openNewProject') }}</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>

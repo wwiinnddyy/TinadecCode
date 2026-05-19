@@ -73,3 +73,10 @@ public sealed record SaveAgentProfileRequest(
 
 public sealed record UpdateAgentModeRequest(
     string Mode);
+
+public sealed record CodeToolExecuteRequest(
+    string? SessionId,
+    string? RunId,
+    string? TaskNodeId,
+    string? Cwd,
+    IReadOnlyDictionary<string, object?>? Arguments);

@@ -4,6 +4,7 @@ using Tinadec.AgentCore.Services;
 using Tinadec.AgentCore.Storage;
 using Tinadec.Contracts.Events;
 using Tinadec.Contracts.Models;
+using TinadecCore.Abstractions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +29,13 @@ builder.Services.AddSingleton<CoreStore>();
 builder.Services.AddSingleton<EventHub>();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddHttpClient<OpenAiCompatibleClient>();
+builder.Services.AddSingleton<IToolRegistry, ToolRegistryService>();
+builder.Services.AddSingleton<IAgentWorkflowRuntime, AgentWorkflowRuntime>();
+builder.Services.AddHttpClient<ICodeToolClient, CodeToolClient>(client =>
+{
+    var gatewayUrl = Environment.GetEnvironmentVariable("TINADEC_GATEWAY_URL") ?? "http://127.0.0.1:48730";
+    client.BaseAddress = new Uri(gatewayUrl.TrimEnd('/') + "/");
+});
 builder.Services.AddSingleton<DoctorService>();
 builder.Services.AddSingleton<OrchestratorService>();
 
@@ -115,7 +123,7 @@ app.MapPost("/api/v1/sessions/{sessionId}/messages", async (
 
     var orchestration = orchestrator.CreateRunForMessage(sessionId, userMessage.Id, userMessage.Content);
 
-    var route = coreStore.GetModelRoute("chat");
+    var route = coreStore.GetModelRoute("planner");
     var provider = route is null
         ? coreStore.GetStoredModelProviderInstance("openai_default")
         : coreStore.GetStoredModelProviderInstance(route.ProviderInstanceId);
@@ -127,13 +135,16 @@ app.MapPost("/api/v1/sessions/{sessionId}/messages", async (
 
     Publish(events, coreStore.AppendNewEvent("model.requested", sessionId, new JsonObject
     {
+        ["agent_id"] = "agent_meeting",
+        ["agent_type"] = "meeting",
+        ["route_purpose"] = "planner",
         ["provider_instance_id"] = provider?.Id,
         ["driver"] = provider?.Driver,
         ["connection_kind"] = provider?.ConnectionKind,
         ["model"] = settings.Model,
         ["base_url"] = settings.BaseUrl,
         ["has_api_key"] = !string.IsNullOrWhiteSpace(apiKey)
-    }, ["model.remote"]));
+    }, ["agent.meeting", "model.remote"]));
 
     var history = coreStore.ListMessages(sessionId);
     var reply = provider?.ConnectionKind.Equals("cli", StringComparison.OrdinalIgnoreCase) == true
@@ -149,7 +160,7 @@ app.MapPost("/api/v1/sessions/{sessionId}/messages", async (
     {
         ["message_id"] = assistantMessage.Id,
         ["role"] = assistantMessage.Role
-    }, ["agent.message", "model.remote"]));
+    }, ["agent.message", "agent.meeting", "model.remote"]));
 
     return Results.Ok(assistantMessage);
 });

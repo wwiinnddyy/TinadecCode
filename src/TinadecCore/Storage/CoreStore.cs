@@ -383,6 +383,7 @@ public sealed class CoreStore
                 """, command => command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O")));
 
             SeedBuiltinExtensions(connection);
+            NormalizeLegacyAgentSeeds(connection);
             SeedBuiltinAgents(connection);
         }
     }
@@ -1508,7 +1509,7 @@ public sealed class CoreStore
                 $"ctx_{Guid.NewGuid():N}",
                 run.Id,
                 sessionId,
-                "agent_context_compressor",
+                "agent_realtime_context_compressor",
                 $"Compressed planning context for {nodes.Count} task nodes. Source user goal: {run.Summary}",
                 12000,
                 0.35,
@@ -1720,7 +1721,7 @@ public sealed class CoreStore
             new(
                 "Plan the work",
                 $"Break down the user goal and keep success criteria visible: {goal}",
-                "plan-executor",
+                "planning-agent",
                 "read-only",
                 "observe",
                 ["Task graph exists", "Success criteria are explicit", "Approval points are marked"],
@@ -1728,7 +1729,7 @@ public sealed class CoreStore
             new(
                 "Search relevant context",
                 "Collect files, symbols, docs, or prior events needed before execution.",
-                "search-executor",
+                "search-agent",
                 "read-only",
                 "observe",
                 ["Relevant evidence is collected", "No workspace mutation occurs"],
@@ -1736,7 +1737,7 @@ public sealed class CoreStore
             new(
                 "Locate code touchpoints",
                 "Find concrete code locations, dependencies, and boundaries for the requested change.",
-                "code-locator",
+                "code-locator-agent",
                 "read-only",
                 "observe",
                 ["Candidate files are identified", "Ownership boundaries are recorded"],
@@ -1744,7 +1745,7 @@ public sealed class CoreStore
             new(
                 "Prepare validation",
                 "Identify tests, checks, or commands that should validate the result after approval.",
-                "test-runner",
+                "testing-agent",
                 "approval-gated",
                 "approval",
                 ["Validation commands are named", "Shell execution remains approval-gated"],
@@ -1752,7 +1753,7 @@ public sealed class CoreStore
             new(
                 "Synthesize execution guidance",
                 "Combine planning, evidence, supervision, and model reasoning into the next actionable step.",
-                "synthesis-executor",
+                "synthesis-model-agent",
                 "read-only",
                 "observe",
                 ["Next step is clear", "Unresolved risks are visible"],
@@ -2149,6 +2150,47 @@ public sealed class CoreStore
                 command.Parameters.AddWithValue("$created_at", now.ToString("O"));
             });
         }
+    }
+
+    private static void NormalizeLegacyAgentSeeds(SqliteConnection connection)
+    {
+        Execute(connection, """
+            update agent_profiles
+            set id = 'agent_evolution_algorithm',
+                name = 'Evolution Algorithm Agent',
+                agent_type = 'evolution-algorithm',
+                model_route_purpose = 'evolution',
+                description = 'Observes repeated workflow patterns and proposes candidate skills, MCP manifests, prompts, or agent specs without hot-path publishing.'
+            where id = 'agent_purifier'
+              and not exists (select 1 from agent_profiles where id = 'agent_evolution_algorithm')
+            """);
+
+        Execute(connection, """
+            delete from agent_profiles
+            where id = 'agent_purifier'
+              and exists (select 1 from agent_profiles where id = 'agent_evolution_algorithm')
+            """);
+
+        Execute(connection, """
+            update agent_candidates
+            set id = 'cand_evolution_review_agent',
+                generated_by_agent_id = 'agent_evolution_algorithm',
+                name = 'Evolved Review Agent'
+            where id = 'cand_purified_review_agent'
+              and not exists (select 1 from agent_candidates where id = 'cand_evolution_review_agent')
+            """);
+
+        Execute(connection, """
+            delete from agent_candidates
+            where id = 'cand_purified_review_agent'
+              and exists (select 1 from agent_candidates where id = 'cand_evolution_review_agent')
+            """);
+
+        Execute(connection, """
+            update agent_candidates
+            set generated_by_agent_id = 'agent_evolution_algorithm'
+            where generated_by_agent_id = 'agent_purifier'
+            """);
     }
 
     private InstalledExtensionDto SaveInstalledExtension(string? catalogId, ExtensionDescriptor descriptor, bool enabled, string status, string statusMessage)

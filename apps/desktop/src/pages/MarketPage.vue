@@ -16,6 +16,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Trash2,
+  Zap,
 } from '@lucide/vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -26,6 +27,19 @@ import { UiBadge, UiButton, UiInput, UiLabel } from '@/components/ui'
 
 const { t } = useI18n()
 const router = useRouter()
+
+const BUILT_IN_SOURCES = [
+  {
+    name: 'ClawHub',
+    kind: 'marketplace-url',
+    location: 'https://clawhub.ai/',
+  },
+  {
+    name: 'ClawHub CN',
+    kind: 'marketplace-url',
+    location: 'https://mirror-cn.clawhub.com/',
+  },
+]
 
 const sources = ref<ExtensionSourceDto[]>([])
 const catalog = ref<MarketCatalogItemDto[]>([])
@@ -96,6 +110,10 @@ const selectedRuntime = computed(() => {
   ]
 })
 
+const clawhubSource = computed(() =>
+  sources.value.find((s) => s.location.includes('clawhub'))
+)
+
 function kindLabel(kind: string) {
   if (kind === 'skill') return 'Skill'
   if (kind === 'mcp-server') return 'MCP'
@@ -117,6 +135,13 @@ function statusLabel(item: MarketCatalogItemDto) {
   return t('market.installedDisabled')
 }
 
+function statusVariant(item: MarketCatalogItemDto) {
+  const extension = installedByExtensionId.value.get(item.extension_id)
+  if (!extension) return 'secondary'
+  if (extension.enabled) return 'default'
+  return 'outline'
+}
+
 async function run(label: string, action: () => Promise<void>) {
   busy.value = true
   error.value = null
@@ -129,9 +154,30 @@ async function run(label: string, action: () => Promise<void>) {
   }
 }
 
+async function ensureBuiltInSources() {
+  for (const builtIn of BUILT_IN_SOURCES) {
+    const exists = sources.value.some(
+      (s) => s.location === builtIn.location || s.name === builtIn.name
+    )
+    if (!exists) {
+      try {
+        await api.createExtensionSource({
+          name: builtIn.name,
+          kind: builtIn.kind,
+          location: builtIn.location,
+          enabled: true,
+        })
+      } catch {
+        // source may already exist from a previous session
+      }
+    }
+  }
+}
+
 async function loadAll() {
   loading.value = true
   try {
+    await ensureBuiltInSources()
     const [sourceList, installedList, servers, adapters] = await Promise.all([
       api.listExtensionSources(),
       api.listInstalledExtensions(),
@@ -142,7 +188,10 @@ async function loadAll() {
     installed.value = installedList
     mcpServers.value = servers
     acpAdapters.value = adapters
-    if (!sourceFilter.value) sourceFilter.value = sourceList[0]?.id ?? ''
+    if (!sourceFilter.value) {
+      const clawhub = sourceList.find((s) => s.location.includes('clawhub'))
+      sourceFilter.value = clawhub?.id ?? sourceList[0]?.id ?? ''
+    }
     await loadCatalog()
   } finally {
     loading.value = false
@@ -279,7 +328,7 @@ onMounted(() => {
         </div>
 
         <div class="market-search">
-          <Search :size="15" />
+          <Search :size="15" class="market-search-icon" />
           <UiInput v-model="query" :placeholder="t('market.search')" @keyup.enter="loadCatalog" />
           <UiButton variant="ghost" size="icon" :title="t('settings.refresh')" @click="loadCatalog">
             <RefreshCw :size="15" />
@@ -292,7 +341,7 @@ onMounted(() => {
             :key="option.key"
             variant="ghost"
             size="sm"
-            class="market-filter-button"
+            class="market-filter-button w-full justify-start"
             :class="{ active: kindFilter === option.key }"
             @click="kindFilter = option.key"
           >
@@ -310,10 +359,11 @@ onMounted(() => {
             v-for="source in sources"
             :key="source.id"
             class="market-source-item"
-            :class="{ active: sourceFilter === source.id }"
+            :class="{ active: sourceFilter === source.id, 'is-clawhub': source.location.includes('clawhub') }"
             @click="sourceFilter = source.id"
           >
-            <Store :size="14" />
+            <Zap v-if="source.location.includes('clawhub')" :size="14" class="clawhub-icon" />
+            <Store v-else :size="14" />
             <span>{{ source.name }}</span>
             <UiButton variant="ghost" size="icon" :title="t('settings.refresh')" @click.stop="refreshSource(source.id)">
               <RefreshCw :size="13" />
@@ -351,13 +401,13 @@ onMounted(() => {
           :class="{ active: selectedCatalogId === item.catalog_id }"
           @click="selectedCatalogId = item.catalog_id"
         >
-          <div class="market-card-icon">
+          <div class="market-card-icon" :class="item.kind">
             <component :is="kindIcon(item.kind)" :size="18" />
           </div>
           <div class="market-card-main">
             <div class="market-card-title">
               <strong>{{ item.display_name }}</strong>
-              <UiBadge :variant="item.installed_extension_id ? 'default' : 'secondary'">{{ statusLabel(item) }}</UiBadge>
+              <UiBadge :variant="statusVariant(item)">{{ statusLabel(item) }}</UiBadge>
             </div>
             <p>{{ item.description }}</p>
             <div class="market-chip-row">
@@ -376,7 +426,7 @@ onMounted(() => {
       <aside class="market-detail">
         <template v-if="selectedItem">
           <div class="market-detail-head">
-            <div class="market-detail-icon">
+            <div class="market-detail-icon" :class="selectedItem.kind">
               <component :is="kindIcon(selectedItem.kind)" :size="22" />
             </div>
             <div>
