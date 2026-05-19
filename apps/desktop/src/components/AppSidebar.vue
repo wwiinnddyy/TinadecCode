@@ -1,0 +1,206 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import {
+  ChevronRight,
+  FolderOpen,
+  MessageSquare,
+  Plus,
+  Settings,
+  Store,
+  Terminal,
+} from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
+import type { ProjectDto, SessionDto } from '../api'
+import { UiButton, UiSeparator } from '@/components/ui'
+
+const { t } = useI18n()
+
+const props = defineProps<{
+  projects: ProjectDto[]
+  sessions: SessionDto[]
+  selectedProjectId: string | null
+  selectedSessionId: string | null
+  busy: boolean
+}>()
+
+const emit = defineEmits<{
+  'select-project': [id: string]
+  'select-session': [id: string]
+  'create-session': [projectId: string]
+  'open-project': []
+  'go-settings': []
+  'go-market': []
+}>()
+
+const searchQuery = ref('')
+const expandedProjects = ref<Set<string>>(new Set())
+
+const filteredProjects = computed(() => {
+  if (!searchQuery.value.trim()) return props.projects
+  const q = searchQuery.value.toLowerCase()
+  return props.projects.filter((project) =>
+    project.name.toLowerCase().includes(q)
+  )
+})
+
+function getProjectSessions(projectId: string): SessionDto[] {
+  return props.sessions.filter((s) => s.project_id === projectId)
+}
+
+function isExpanded(projectId: string): boolean {
+  return expandedProjects.value.has(projectId)
+}
+
+function toggleExpand(projectId: string) {
+  const next = new Set(expandedProjects.value)
+  if (next.has(projectId)) {
+    next.delete(projectId)
+  } else {
+    next.add(projectId)
+  }
+  expandedProjects.value = next
+}
+
+function handleProjectClick(projectId: string) {
+  emit('select-project', projectId)
+  if (!isExpanded(projectId)) {
+    toggleExpand(projectId)
+  }
+}
+
+function handleSessionClick(sessionId: string) {
+  emit('select-session', sessionId)
+}
+
+function handleNewSession(projectId: string) {
+  emit('create-session', projectId)
+}
+
+function handleNewThread() {
+  if (props.selectedProjectId) {
+    emit('create-session', props.selectedProjectId)
+  } else if (props.projects.length > 0) {
+    emit('create-session', props.projects[0].id)
+  }
+}
+
+const tokenUsage = ref<number[]>([])
+</script>
+
+<template>
+  <aside class="sidebar">
+    <nav class="sidebar-nav">
+      <UiButton
+        variant="ghost"
+        size="sm"
+        class="sidebar-nav-item w-full justify-start"
+        :disabled="busy || projects.length === 0"
+        @click="handleNewThread"
+      >
+        <MessageSquare :size="16" />
+        <span>{{ t('sidebar.newChat') }}</span>
+      </UiButton>
+      <UiButton
+        variant="ghost"
+        size="sm"
+        class="sidebar-nav-item w-full justify-start"
+        @click="emit('go-market')"
+      >
+        <Store :size="16" />
+        <span>{{ t('sidebar.market') }}</span>
+      </UiButton>
+      <UiButton
+        variant="ghost"
+        size="sm"
+        class="sidebar-nav-item w-full justify-start"
+        disabled
+      >
+        <Terminal :size="16" />
+        <span>{{ t('sidebar.commandCenter') }}</span>
+      </UiButton>
+    </nav>
+
+    <UiSeparator class="sidebar-divider" />
+
+    <div class="sidebar-list">
+      <div
+        v-for="project in filteredProjects"
+        :key="project.id"
+        class="project-group"
+      >
+        <div
+          class="project-row"
+          :class="{ active: project.id === selectedProjectId }"
+        >
+          <button
+            class="project-row-main"
+            @click="handleProjectClick(project.id)"
+          >
+            <ChevronRight
+              :size="14"
+              class="project-chevron"
+              :class="{ expanded: isExpanded(project.id) }"
+            />
+            <FolderOpen :size="14" class="sidebar-list-item-icon" />
+            <span class="sidebar-list-item-text">{{ project.name }}</span>
+          </button>
+          <button
+            class="project-row-action"
+            :title="t('sidebar.newChat')"
+            @click.stop="handleNewSession(project.id)"
+          >
+            <Plus :size="14" />
+          </button>
+        </div>
+
+        <div v-if="isExpanded(project.id)" class="project-sessions">
+          <button
+            v-for="session in getProjectSessions(project.id)"
+            :key="session.id"
+            class="session-item"
+            :class="{ active: session.id === selectedSessionId }"
+            @click="handleSessionClick(session.id)"
+          >
+            <span class="session-dot" :class="session.status" />
+            <span class="session-title">{{ session.title }}</span>
+          </button>
+          <div v-if="getProjectSessions(project.id).length === 0" class="session-empty">
+            {{ t('sidebar.noSessions') }}
+          </div>
+        </div>
+      </div>
+
+      <div v-if="filteredProjects.length === 0" class="sidebar-empty">
+        {{ t('sidebar.noResults') }}
+      </div>
+    </div>
+
+    <div v-if="tokenUsage.length > 0" class="token-usage-area">
+      <div class="token-usage-chart">
+        <div
+          v-for="(height, index) in tokenUsage"
+          :key="index"
+          class="token-usage-bar"
+          :style="{ height: `${height}%` }"
+          :class="{
+            'low': height < 40,
+            'medium': height >= 40 && height < 70,
+            'high': height >= 70
+          }"
+        />
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <UiButton
+        variant="ghost"
+        size="icon"
+        class="sidebar-footer-action"
+        :title="t('sidebar.settings')"
+        @click="emit('go-settings')"
+      >
+        <Settings :size="16" />
+      </UiButton>
+    </div>
+  </aside>
+</template>

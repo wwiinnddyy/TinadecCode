@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Tinadec.AgentCore/Tinadec.AgentCore.csproj" />
+    <Project Path="src/TinadecCore/TinadecCore.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tinadec.AgentCore.Tests/Tinadec.AgentCore.Tests.csproj" />
+    <Project Path="tests/Tinadec.Contracts.Tests/Tinadec.Contracts.Tests.csproj" />
+  </Folder>
+</Solution>

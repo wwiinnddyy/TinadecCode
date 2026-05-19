@@ -1,0 +1,499 @@
+export interface ProjectDto {
+  id: string;
+  name: string;
+  path: string;
+  created_at: string;
+}
+
+export interface SessionDto {
+  id: string;
+  project_id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MessageDto {
+  id: string;
+  session_id: string;
+  role: 'user' | 'assistant' | string;
+  content: string;
+  created_at: string;
+}
+
+export interface ApprovalDto {
+  id: string;
+  session_id?: string | null;
+  kind: string;
+  summary: string;
+  command?: string | null;
+  cwd?: string | null;
+  status: string;
+  created_at: string;
+  decided_at?: string | null;
+}
+
+export interface ModelSettingsDto {
+  base_url: string;
+  model: string;
+  has_api_key: boolean;
+  updated_at: string;
+}
+
+export interface ModelProviderTemplateDto {
+  driver: string;
+  display_name: string;
+  connection_kind: 'api-key' | 'cli' | 'local-server' | string;
+  summary: string;
+  default_base_url?: string | null;
+  default_model?: string | null;
+  capabilities: string[];
+}
+
+export interface ModelProviderInstanceDto {
+  id: string;
+  driver: string;
+  display_name: string;
+  connection_kind: 'api-key' | 'cli' | 'local-server' | string;
+  base_url?: string | null;
+  model?: string | null;
+  has_api_key: boolean;
+  binary_path?: string | null;
+  home_path?: string | null;
+  server_url?: string | null;
+  launch_args?: string | null;
+  capabilities: string[];
+  enabled: boolean;
+  status: string;
+  status_message: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelRouteDto {
+  purpose: string;
+  provider_instance_id: string;
+  model?: string | null;
+  updated_at: string;
+}
+
+export interface SaveModelProviderInstanceInput {
+  id?: string | null;
+  driver: string;
+  display_name: string;
+  connection_kind: string;
+  base_url?: string | null;
+  model?: string | null;
+  api_key?: string | null;
+  clear_api_key?: boolean;
+  binary_path?: string | null;
+  home_path?: string | null;
+  server_url?: string | null;
+  launch_args?: string | null;
+  capabilities?: string[];
+  enabled?: boolean;
+}
+
+export interface DoctorReportDto {
+  platform: string;
+  agent_core_version: string;
+  checks: Array<{ name: string; status: string; message: string }>;
+}
+
+export interface EventEnvelope {
+  v: string;
+  type: string;
+  request_id: string;
+  session_id?: string | null;
+  trace_id: string;
+  seq: number;
+  ts: string;
+  capabilities: string[];
+  payload?: Record<string, unknown> | null;
+  error?: { code: string; message: string; detail?: string | null } | null;
+}
+
+export interface ExtensionSourceDto {
+  id: string;
+  name: string;
+  kind: string;
+  location: string;
+  enabled: boolean;
+  last_refreshed_at?: string | null;
+  created_at: string;
+}
+
+export interface MarketCatalogItemDto {
+  catalog_id: string;
+  source_id: string;
+  extension_id: string;
+  kind: 'skill' | 'mcp-server' | 'acp-adapter' | 'tool-pack' | string;
+  version: string;
+  publisher: string;
+  display_name: string;
+  description: string;
+  source_kind: string;
+  source_location: string;
+  capabilities: string[];
+  permissions: string[];
+  status: string;
+  installed_extension_id?: string | null;
+}
+
+export interface InstalledExtensionDto {
+  id: string;
+  catalog_id?: string | null;
+  extension_id: string;
+  kind: string;
+  version: string;
+  publisher: string;
+  display_name: string;
+  description: string;
+  source_kind: string;
+  source_location: string;
+  capabilities: string[];
+  permissions: string[];
+  enabled: boolean;
+  status: string;
+  status_message: string;
+  installed_at: string;
+  updated_at: string;
+}
+
+export interface ExtensionInstallPreviewDto {
+  extension_id: string;
+  kind: string;
+  version: string;
+  publisher: string;
+  display_name: string;
+  description: string;
+  source_kind: string;
+  source_location: string;
+  capabilities: string[];
+  permissions: string[];
+  risks: string[];
+  requires_approval: boolean;
+  approval_summary: string;
+}
+
+export interface ExtensionInstallResultDto {
+  approval_required: boolean;
+  approval?: ApprovalDto | null;
+  extension?: InstalledExtensionDto | null;
+  preview: ExtensionInstallPreviewDto;
+}
+
+export interface McpServerDto {
+  id: string;
+  extension_id: string;
+  name: string;
+  transport: string;
+  status: string;
+  tools: string[];
+  updated_at: string;
+}
+
+export interface AcpAdapterDto {
+  id: string;
+  extension_id: string;
+  name: string;
+  command: string;
+  status: string;
+  status_message: string;
+  capabilities: string[];
+  updated_at: string;
+}
+
+export interface AgentProfileDto {
+  id: string;
+  name: string;
+  layer: 'planning' | 'execution' | string;
+  agent_type: string;
+  mode: string;
+  description: string;
+  model_route_purpose: string;
+  allowed_tools: string[];
+  capabilities: string[];
+  enabled: boolean;
+  is_built_in: boolean;
+  updated_at: string;
+}
+
+export interface AgentModeDto {
+  id: string;
+  display_name: string;
+  summary: string;
+  max_parallel_executors: number;
+  worktree_isolation: boolean;
+  approval_required: boolean;
+  budget_policy: string;
+}
+
+export interface AgentCandidateDto {
+  id: string;
+  generated_by_agent_id: string;
+  name: string;
+  layer: string;
+  agent_type: string;
+  description: string;
+  suggested_tools: string[];
+  evaluation_notes: string[];
+  status: string;
+  created_at: string;
+}
+
+export interface OrchestrationRunDto {
+  id: string;
+  session_id: string;
+  user_message_id?: string | null;
+  status: string;
+  summary: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskGraphDto {
+  id: string;
+  run_id: string;
+  session_id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskNodeDto {
+  id: string;
+  graph_id: string;
+  run_id: string;
+  session_id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: number;
+  risk: string;
+  success_criteria: string[];
+  dependencies: string[];
+  required_capabilities: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentAssignmentDto {
+  id: string;
+  run_id: string;
+  task_node_id: string;
+  agent_id: string;
+  agent_name: string;
+  agent_layer: string;
+  agent_type: string;
+  model_route_purpose: string;
+  permission_mode: string;
+  allowed_tools: string[];
+  status: string;
+  created_at: string;
+}
+
+export interface StepResultDto {
+  id: string;
+  run_id: string;
+  task_node_id: string;
+  agent_id: string;
+  status: string;
+  summary: string;
+  evidence: string[];
+  created_at: string;
+}
+
+export interface ContextPackDto {
+  id: string;
+  run_id: string;
+  session_id: string;
+  created_by_agent_id: string;
+  summary: string;
+  token_budget: number;
+  compression_ratio: number;
+  evidence_map: string[];
+  created_at: string;
+}
+
+export interface SupervisionFindingDto {
+  id: string;
+  run_id: string;
+  session_id: string;
+  severity: string;
+  category: string;
+  summary: string;
+  recommendation: string;
+  status: string;
+  created_at: string;
+}
+
+export interface OrchestrationSnapshotDto {
+  run?: OrchestrationRunDto | null;
+  graph?: TaskGraphDto | null;
+  nodes: TaskNodeDto[];
+  assignments: AgentAssignmentDto[];
+  step_results: StepResultDto[];
+  context_packs: ContextPackDto[];
+  supervision_findings: SupervisionFindingDto[];
+}
+
+const gatewayUrl = window.tinadec?.gatewayUrl?.() ?? 'http://127.0.0.1:48730';
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${gatewayUrl}${path}`, {
+    ...init,
+    headers: {
+      accept: 'application/json',
+      ...(init?.body ? { 'content-type': 'application/json' } : {}),
+      ...(init?.headers ?? {})
+    }
+  });
+
+  const text = await response.text();
+  const data = text.length > 0 ? JSON.parse(text) : null;
+
+  if (!response.ok) {
+    const message = data?.message ?? data?.error?.message ?? response.statusText;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
+export const api = {
+  gatewayUrl,
+  health: () => request<Record<string, unknown>>('/api/v1/health'),
+  doctor: () => request<DoctorReportDto>('/api/v1/doctor'),
+  listProjects: () => request<ProjectDto[]>('/api/v1/projects'),
+  createProject: (name: string, path: string) => request<ProjectDto>('/api/v1/projects', {
+    method: 'POST',
+    body: JSON.stringify({ name, path })
+  }),
+  listSessions: (projectId?: string) => request<SessionDto[]>(`/api/v1/sessions${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`),
+  createSession: (projectId: string, title?: string) => request<SessionDto>('/api/v1/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ project_id: projectId, title })
+  }),
+  listMessages: (sessionId: string) => request<MessageDto[]>(`/api/v1/sessions/${sessionId}/messages`),
+  postMessage: (sessionId: string, content: string) => request<MessageDto>(`/api/v1/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ content })
+  }),
+  getOrchestrationSnapshot: (sessionId: string) => request<OrchestrationSnapshotDto>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/orchestration`),
+  listRuns: (sessionId: string) => request<OrchestrationRunDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/runs`),
+  listTaskNodes: (sessionId: string) => request<TaskNodeDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/task-nodes`),
+  listContextPacks: (sessionId: string) => request<ContextPackDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/context-packs`),
+  listSupervisionFindings: (sessionId: string) => request<SupervisionFindingDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/supervision-findings`),
+  listApprovals: (sessionId?: string) => request<ApprovalDto[]>(`/api/v1/approvals?status=pending${sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ''}`),
+  decideApproval: (approvalId: string, decision: 'approved' | 'rejected') => request<ApprovalDto>(`/api/v1/approvals/${approvalId}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({ decision })
+  }),
+  createShellApproval: (sessionId: string | null, command: string, cwd?: string) => request<ApprovalDto>('/api/v1/tools/shell', {
+    method: 'POST',
+    body: JSON.stringify({
+      session_id: sessionId,
+      kind: 'shell',
+      summary: command,
+      command,
+      cwd
+    })
+  }),
+  listModelProviderTemplates: () => request<ModelProviderTemplateDto[]>('/api/v1/model-provider-templates'),
+  listModelProviders: () => request<ModelProviderInstanceDto[]>('/api/v1/model-providers'),
+  createModelProvider: (provider: SaveModelProviderInstanceInput) => request<ModelProviderInstanceDto>('/api/v1/model-providers', {
+    method: 'POST',
+    body: JSON.stringify(provider)
+  }),
+  saveModelProvider: (providerId: string, provider: SaveModelProviderInstanceInput) => request<ModelProviderInstanceDto>(`/api/v1/model-providers/${encodeURIComponent(providerId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(provider)
+  }),
+  listModelRoutes: () => request<ModelRouteDto[]>('/api/v1/model-routes'),
+  saveModelRoute: (purpose: string, providerInstanceId: string, model?: string | null) => request<ModelRouteDto>(`/api/v1/model-routes/${encodeURIComponent(purpose)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ provider_instance_id: providerInstanceId, model })
+  }),
+  getModelSettings: () => request<ModelSettingsDto>('/api/v1/model-settings'),
+  saveModelSettings: (settings: { base_url: string; model: string; api_key?: string; clear_api_key?: boolean }) => request<ModelSettingsDto>('/api/v1/model-settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings)
+  }),
+  listExtensionSources: () => request<ExtensionSourceDto[]>('/api/v1/market/sources'),
+  createExtensionSource: (source: { name: string; kind: string; location: string; enabled?: boolean }) => request<ExtensionSourceDto>('/api/v1/market/sources', {
+    method: 'POST',
+    body: JSON.stringify(source)
+  }),
+  refreshExtensionSource: (sourceId: string) => request<ExtensionSourceDto>(`/api/v1/market/sources/${encodeURIComponent(sourceId)}/refresh`, {
+    method: 'POST'
+  }),
+  listMarketCatalog: (params: { kind?: string; query?: string; source_id?: string } = {}) => {
+    const search = new URLSearchParams();
+    if (params.kind && params.kind !== 'all') search.set('kind', params.kind);
+    if (params.query) search.set('query', params.query);
+    if (params.source_id) search.set('source_id', params.source_id);
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    return request<MarketCatalogItemDto[]>(`/api/v1/market/catalog${suffix}`);
+  },
+  getMarketCatalogItem: (catalogId: string) => request<MarketCatalogItemDto>(`/api/v1/market/catalog/${encodeURIComponent(catalogId)}`),
+  previewExtensionInstall: (input: { catalog_id?: string | null; source_kind?: string | null; source_location?: string | null; manifest_json?: string | null }) => request<ExtensionInstallPreviewDto>('/api/v1/extensions/install-preview', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  }),
+  installExtension: (input: { catalog_id?: string | null; source_kind?: string | null; source_location?: string | null; manifest_json?: string | null; approval_id?: string | null }) => request<ExtensionInstallResultDto>('/api/v1/extensions/install', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  }),
+  listInstalledExtensions: () => request<InstalledExtensionDto[]>('/api/v1/extensions/installed'),
+  enableExtension: (extensionId: string) => request<InstalledExtensionDto>(`/api/v1/extensions/${encodeURIComponent(extensionId)}/enable`, { method: 'POST' }),
+  disableExtension: (extensionId: string) => request<InstalledExtensionDto>(`/api/v1/extensions/${encodeURIComponent(extensionId)}/disable`, { method: 'POST' }),
+  updateExtension: (extensionId: string) => request<InstalledExtensionDto>(`/api/v1/extensions/${encodeURIComponent(extensionId)}/update`, { method: 'POST' }),
+  deleteExtension: (extensionId: string) => request<void>(`/api/v1/extensions/${encodeURIComponent(extensionId)}`, { method: 'DELETE' }),
+  listMcpServers: () => request<McpServerDto[]>('/api/v1/mcp/servers'),
+  reloadMcpServer: (serverId: string) => request<McpServerDto>(`/api/v1/mcp/servers/${encodeURIComponent(serverId)}/reload`, { method: 'POST' }),
+  listAcpAdapters: () => request<AcpAdapterDto[]>('/api/v1/acp/adapters'),
+  probeAcpAdapter: (adapterId: string) => request<AcpAdapterDto>(`/api/v1/acp/adapters/${encodeURIComponent(adapterId)}/probe`, { method: 'POST' }),
+  listAgentModes: () => request<AgentModeDto[]>('/api/v1/agent-modes'),
+  listAgents: () => request<AgentProfileDto[]>('/api/v1/agents'),
+  saveAgent: (agentId: string, agent: {
+    name: string;
+    layer: string;
+    agent_type: string;
+    mode: string;
+    description: string;
+    model_route_purpose: string;
+    allowed_tools?: string[];
+    capabilities?: string[];
+    enabled: boolean;
+  }) => request<AgentProfileDto>(`/api/v1/agents/${encodeURIComponent(agentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(agent)
+  }),
+  updateAgentMode: (agentId: string, mode: string) => request<AgentProfileDto>(`/api/v1/agents/${encodeURIComponent(agentId)}/mode`, {
+    method: 'PUT',
+    body: JSON.stringify({ mode })
+  }),
+  listAgentCandidates: () => request<AgentCandidateDto[]>('/api/v1/agent-candidates'),
+  connectEvents(sessionId: string | null, onEvent: (event: EventEnvelope) => void): EventSource {
+    const params = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+    const source = new EventSource(`${gatewayUrl}/api/v1/events${params}`);
+    source.onmessage = (message) => onEvent(JSON.parse(message.data));
+    source.addEventListener('project.created', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('session.created', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('message.created', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('approval.requested', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('approval.approved', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('approval.rejected', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('tool.shell.approval_required', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('run.started', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('task_graph.created', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('task.assigned', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('step.result.created', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('supervision.checked', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    source.addEventListener('context.pack.created', (message) => onEvent(JSON.parse((message as MessageEvent).data)));
+    return source;
+  }
+};

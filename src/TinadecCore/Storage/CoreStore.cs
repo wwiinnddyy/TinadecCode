@@ -1,0 +1,2776 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Data.Sqlite;
+using Tinadec.AgentCore.Services;
+using Tinadec.Contracts.Events;
+using Tinadec.Contracts.Models;
+
+namespace Tinadec.AgentCore.Storage;
+
+public sealed class CoreStore
+{
+    private readonly object _gate = new();
+    private readonly string _connectionString;
+
+    public CoreStore(IConfiguration configuration)
+        : this(ResolveDatabasePath(configuration))
+    {
+    }
+
+    public CoreStore(string databasePath)
+    {
+        var directory = Path.GetDirectoryName(databasePath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath
+        }.ToString();
+    }
+
+    public void Initialize()
+    {
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                create table if not exists projects (
+                    id text primary key,
+                    name text not null,
+                    path text not null,
+                    created_at text not null
+                );
+
+                create table if not exists sessions (
+                    id text primary key,
+                    project_id text not null,
+                    title text not null,
+                    status text not null,
+                    created_at text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists messages (
+                    id text primary key,
+                    session_id text not null,
+                    role text not null,
+                    content text not null,
+                    created_at text not null
+                );
+
+                create table if not exists events (
+                    seq integer primary key,
+                    v text not null,
+                    type text not null,
+                    request_id text not null,
+                    session_id text null,
+                    trace_id text not null,
+                    ts text not null,
+                    capabilities_json text not null,
+                    payload_json text null,
+                    error_json text null
+                );
+
+                create table if not exists approvals (
+                    id text primary key,
+                    session_id text null,
+                    kind text not null,
+                    summary text not null,
+                    command text null,
+                    cwd text null,
+                    status text not null,
+                    created_at text not null,
+                    decided_at text null
+                );
+
+                create table if not exists model_settings (
+                    id integer primary key check (id = 1),
+                    base_url text not null,
+                    model text not null,
+                    encrypted_api_key text null,
+                    updated_at text not null
+                );
+
+                create table if not exists model_provider_instances (
+                    id text primary key,
+                    driver text not null,
+                    display_name text not null,
+                    connection_kind text not null,
+                    base_url text null,
+                    model text null,
+                    encrypted_api_key text null,
+                    binary_path text null,
+                    home_path text null,
+                    server_url text null,
+                    launch_args text null,
+                    capabilities_json text not null,
+                    enabled integer not null,
+                    created_at text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists model_routes (
+                    purpose text primary key,
+                    provider_instance_id text not null,
+                    model text null,
+                    updated_at text not null
+                );
+
+                create table if not exists extension_sources (
+                    id text primary key,
+                    name text not null,
+                    kind text not null,
+                    location text not null,
+                    enabled integer not null,
+                    last_refreshed_at text null,
+                    created_at text not null
+                );
+
+                create table if not exists extension_catalog_cache (
+                    catalog_id text primary key,
+                    source_id text not null,
+                    extension_id text not null,
+                    kind text not null,
+                    version text not null,
+                    publisher text not null,
+                    display_name text not null,
+                    description text not null,
+                    source_kind text not null,
+                    source_location text not null,
+                    capabilities_json text not null,
+                    permissions_json text not null,
+                    manifest_json text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists installed_extensions (
+                    id text primary key,
+                    catalog_id text null,
+                    extension_id text not null,
+                    kind text not null,
+                    version text not null,
+                    publisher text not null,
+                    display_name text not null,
+                    description text not null,
+                    source_kind text not null,
+                    source_location text not null,
+                    capabilities_json text not null,
+                    permissions_json text not null,
+                    manifest_json text not null,
+                    config_json text null,
+                    enabled integer not null,
+                    status text not null,
+                    status_message text not null,
+                    installed_at text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists extension_events (
+                    id text primary key,
+                    extension_id text not null,
+                    event_type text not null,
+                    payload_json text null,
+                    created_at text not null
+                );
+
+                create table if not exists mcp_servers (
+                    id text primary key,
+                    extension_id text not null,
+                    name text not null,
+                    transport text not null,
+                    status text not null,
+                    tools_json text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists mcp_capabilities_cache (
+                    server_id text primary key,
+                    capabilities_json text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists acp_adapters (
+                    id text primary key,
+                    extension_id text not null,
+                    name text not null,
+                    command text not null,
+                    status text not null,
+                    status_message text not null,
+                    capabilities_json text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists acp_sessions (
+                    id text primary key,
+                    adapter_id text not null,
+                    external_session_id text null,
+                    status text not null,
+                    created_at text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists agent_profiles (
+                    id text primary key,
+                    name text not null,
+                    layer text not null,
+                    agent_type text not null,
+                    mode text not null,
+                    description text not null,
+                    model_route_purpose text not null,
+                    allowed_tools_json text not null,
+                    capabilities_json text not null,
+                    enabled integer not null,
+                    is_builtin integer not null,
+                    updated_at text not null
+                );
+
+                create table if not exists agent_candidates (
+                    id text primary key,
+                    generated_by_agent_id text not null,
+                    name text not null,
+                    layer text not null,
+                    agent_type text not null,
+                    description text not null,
+                    suggested_tools_json text not null,
+                    evaluation_notes_json text not null,
+                    status text not null,
+                    created_at text not null
+                );
+
+                create table if not exists orchestration_runs (
+                    id text primary key,
+                    session_id text not null,
+                    user_message_id text null,
+                    status text not null,
+                    summary text not null,
+                    created_at text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists task_graphs (
+                    id text primary key,
+                    run_id text not null,
+                    session_id text not null,
+                    title text not null,
+                    status text not null,
+                    created_at text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists task_nodes (
+                    id text primary key,
+                    graph_id text not null,
+                    run_id text not null,
+                    session_id text not null,
+                    title text not null,
+                    description text not null,
+                    status text not null,
+                    priority integer not null,
+                    risk text not null,
+                    success_criteria_json text not null,
+                    dependencies_json text not null,
+                    required_capabilities_json text not null,
+                    created_at text not null,
+                    updated_at text not null
+                );
+
+                create table if not exists agent_assignments (
+                    id text primary key,
+                    run_id text not null,
+                    task_node_id text not null,
+                    agent_id text not null,
+                    agent_name text not null,
+                    agent_layer text not null,
+                    agent_type text not null,
+                    model_route_purpose text not null,
+                    permission_mode text not null,
+                    allowed_tools_json text not null,
+                    status text not null,
+                    created_at text not null
+                );
+
+                create table if not exists step_results (
+                    id text primary key,
+                    run_id text not null,
+                    task_node_id text not null,
+                    agent_id text not null,
+                    status text not null,
+                    summary text not null,
+                    evidence_json text not null,
+                    created_at text not null
+                );
+
+                create table if not exists context_packs (
+                    id text primary key,
+                    run_id text not null,
+                    session_id text not null,
+                    created_by_agent_id text not null,
+                    summary text not null,
+                    token_budget integer not null,
+                    compression_ratio real not null,
+                    evidence_map_json text not null,
+                    created_at text not null
+                );
+
+                create table if not exists supervision_findings (
+                    id text primary key,
+                    run_id text not null,
+                    session_id text not null,
+                    severity text not null,
+                    category text not null,
+                    summary text not null,
+                    recommendation text not null,
+                    status text not null,
+                    created_at text not null
+                );
+                """);
+
+            Execute(connection, """
+                insert into model_settings (id, base_url, model, encrypted_api_key, updated_at)
+                values (1, 'https://api.openai.com/v1', 'gpt-5.4-mini', null, $updated_at)
+                on conflict(id) do nothing;
+                """, command => command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.ToString("O")));
+
+            Execute(connection, """
+                insert into model_provider_instances (
+                    id,
+                    driver,
+                    display_name,
+                    connection_kind,
+                    base_url,
+                    model,
+                    encrypted_api_key,
+                    binary_path,
+                    home_path,
+                    server_url,
+                    launch_args,
+                    capabilities_json,
+                    enabled,
+                    created_at,
+                    updated_at
+                )
+                select
+                    'openai_default',
+                    'openai-compatible',
+                    'OpenAI Compatible',
+                    'api-key',
+                    base_url,
+                    model,
+                    encrypted_api_key,
+                    null,
+                    null,
+                    null,
+                    null,
+                    '["chat","streaming","tool-calls"]',
+                    1,
+                    $now,
+                    $now
+                from model_settings
+                where id = 1
+                on conflict(id) do nothing;
+                """, command => command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O")));
+
+            Execute(connection, """
+                insert into model_routes (purpose, provider_instance_id, model, updated_at)
+                select 'chat', 'openai_default', model, $now
+                from model_provider_instances
+                where id = 'openai_default'
+                on conflict(purpose) do nothing;
+                """, command => command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O")));
+
+            SeedBuiltinExtensions(connection);
+            SeedBuiltinAgents(connection);
+        }
+    }
+
+    public IReadOnlyList<ProjectDto> ListProjects()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "select id, name, path, created_at from projects order by created_at desc";
+
+        using var reader = command.ExecuteReader();
+        var projects = new List<ProjectDto>();
+        while (reader.Read())
+        {
+            projects.Add(new ProjectDto(reader.GetString(0), reader.GetString(1), reader.GetString(2), ParseTime(reader.GetString(3))));
+        }
+
+        return projects;
+    }
+
+    public ProjectDto CreateProject(string name, string path)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var project = new ProjectDto($"proj_{Guid.NewGuid():N}", name, path, now);
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into projects (id, name, path, created_at)
+                values ($id, $name, $path, $created_at)
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", project.Id);
+                command.Parameters.AddWithValue("$name", project.Name);
+                command.Parameters.AddWithValue("$path", project.Path);
+                command.Parameters.AddWithValue("$created_at", now.ToString("O"));
+            });
+        }
+
+        return project;
+    }
+
+    public IReadOnlyList<SessionDto> ListSessions(string? projectId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = string.IsNullOrWhiteSpace(projectId)
+            ? "select id, project_id, title, status, created_at, updated_at from sessions order by updated_at desc"
+            : "select id, project_id, title, status, created_at, updated_at from sessions where project_id = $project_id order by updated_at desc";
+
+        if (!string.IsNullOrWhiteSpace(projectId))
+        {
+            command.Parameters.AddWithValue("$project_id", projectId);
+        }
+
+        using var reader = command.ExecuteReader();
+        var sessions = new List<SessionDto>();
+        while (reader.Read())
+        {
+            sessions.Add(ReadSession(reader));
+        }
+
+        return sessions;
+    }
+
+    public SessionDto CreateSession(string projectId, string? title)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var session = new SessionDto(
+            $"sess_{Guid.NewGuid():N}",
+            projectId,
+            string.IsNullOrWhiteSpace(title) ? "New session" : title.Trim(),
+            "active",
+            now,
+            now);
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into sessions (id, project_id, title, status, created_at, updated_at)
+                values ($id, $project_id, $title, $status, $created_at, $updated_at)
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", session.Id);
+                command.Parameters.AddWithValue("$project_id", session.ProjectId);
+                command.Parameters.AddWithValue("$title", session.Title);
+                command.Parameters.AddWithValue("$status", session.Status);
+                command.Parameters.AddWithValue("$created_at", now.ToString("O"));
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        return session;
+    }
+
+    public IReadOnlyList<MessageDto> ListMessages(string sessionId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, session_id, role, content, created_at
+            from messages
+            where session_id = $session_id
+            order by created_at asc
+            """;
+        command.Parameters.AddWithValue("$session_id", sessionId);
+
+        using var reader = command.ExecuteReader();
+        var messages = new List<MessageDto>();
+        while (reader.Read())
+        {
+            messages.Add(new MessageDto(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), ParseTime(reader.GetString(4))));
+        }
+
+        return messages;
+    }
+
+    public MessageDto AddMessage(string sessionId, string role, string content)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var message = new MessageDto($"msg_{Guid.NewGuid():N}", sessionId, role, content, now);
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into messages (id, session_id, role, content, created_at)
+                values ($id, $session_id, $role, $content, $created_at);
+
+                update sessions set updated_at = $created_at where id = $session_id;
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", message.Id);
+                command.Parameters.AddWithValue("$session_id", message.SessionId);
+                command.Parameters.AddWithValue("$role", message.Role);
+                command.Parameters.AddWithValue("$content", message.Content);
+                command.Parameters.AddWithValue("$created_at", now.ToString("O"));
+            });
+        }
+
+        return message;
+    }
+
+    public EventEnvelope AppendNewEvent(
+        string type,
+        string? sessionId,
+        JsonObject? payload,
+        IReadOnlyList<string>? capabilities = null,
+        TinadecError? error = null)
+    {
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            var seq = NextSeq(connection);
+            var envelope = EventEnvelope.Create(type, seq, sessionId, payload, capabilities, error);
+
+            Execute(connection, """
+                insert into events (seq, v, type, request_id, session_id, trace_id, ts, capabilities_json, payload_json, error_json)
+                values ($seq, $v, $type, $request_id, $session_id, $trace_id, $ts, $capabilities_json, $payload_json, $error_json)
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$seq", envelope.Seq);
+                command.Parameters.AddWithValue("$v", envelope.V);
+                command.Parameters.AddWithValue("$type", envelope.Type);
+                command.Parameters.AddWithValue("$request_id", envelope.RequestId);
+                command.Parameters.AddWithValue("$session_id", (object?)envelope.SessionId ?? DBNull.Value);
+                command.Parameters.AddWithValue("$trace_id", envelope.TraceId);
+                command.Parameters.AddWithValue("$ts", envelope.Ts.ToString("O"));
+                command.Parameters.AddWithValue("$capabilities_json", JsonSerializer.Serialize(envelope.Capabilities, TinadecJson.Options));
+                command.Parameters.AddWithValue("$payload_json", envelope.Payload?.ToJsonString(TinadecJson.Options) ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("$error_json", envelope.Error is null ? DBNull.Value : JsonSerializer.Serialize(envelope.Error, TinadecJson.Options));
+            });
+
+            return envelope;
+        }
+    }
+
+    public IReadOnlyList<EventEnvelope> ListEvents(string? sessionId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = string.IsNullOrWhiteSpace(sessionId)
+            ? "select seq, v, type, request_id, session_id, trace_id, ts, capabilities_json, payload_json, error_json from events order by seq asc"
+            : "select seq, v, type, request_id, session_id, trace_id, ts, capabilities_json, payload_json, error_json from events where session_id = $session_id or session_id is null order by seq asc";
+
+        if (!string.IsNullOrWhiteSpace(sessionId))
+        {
+            command.Parameters.AddWithValue("$session_id", sessionId);
+        }
+
+        using var reader = command.ExecuteReader();
+        var events = new List<EventEnvelope>();
+        while (reader.Read())
+        {
+            events.Add(ReadEvent(reader));
+        }
+
+        return events;
+    }
+
+    public IReadOnlyList<ApprovalDto> ListApprovals(string? status, string? sessionId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var where = new List<string>();
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            where.Add("status = $status");
+            command.Parameters.AddWithValue("$status", status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(sessionId))
+        {
+            where.Add("(session_id = $session_id or session_id is null)");
+            command.Parameters.AddWithValue("$session_id", sessionId);
+        }
+
+        command.CommandText = "select id, session_id, kind, summary, command, cwd, status, created_at, decided_at from approvals"
+            + (where.Count == 0 ? "" : " where " + string.Join(" and ", where))
+            + " order by created_at desc";
+
+        using var reader = command.ExecuteReader();
+        var approvals = new List<ApprovalDto>();
+        while (reader.Read())
+        {
+            approvals.Add(ReadApproval(reader));
+        }
+
+        return approvals;
+    }
+
+    public ApprovalDto CreateApproval(CreateApprovalRequest request)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var approval = new ApprovalDto(
+            $"appr_{Guid.NewGuid():N}",
+            request.SessionId,
+            request.Kind,
+            request.Summary,
+            request.Command,
+            request.Cwd,
+            "pending",
+            now,
+            null);
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into approvals (id, session_id, kind, summary, command, cwd, status, created_at, decided_at)
+                values ($id, $session_id, $kind, $summary, $command, $cwd, $status, $created_at, null)
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", approval.Id);
+                command.Parameters.AddWithValue("$session_id", (object?)approval.SessionId ?? DBNull.Value);
+                command.Parameters.AddWithValue("$kind", approval.Kind);
+                command.Parameters.AddWithValue("$summary", approval.Summary);
+                command.Parameters.AddWithValue("$command", (object?)approval.Command ?? DBNull.Value);
+                command.Parameters.AddWithValue("$cwd", (object?)approval.Cwd ?? DBNull.Value);
+                command.Parameters.AddWithValue("$status", approval.Status);
+                command.Parameters.AddWithValue("$created_at", now.ToString("O"));
+            });
+        }
+
+        return approval;
+    }
+
+    public ApprovalDto? DecideApproval(string approvalId, string decision)
+    {
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            var decidedAt = DateTimeOffset.UtcNow;
+            Execute(connection, """
+                update approvals
+                set status = $status, decided_at = $decided_at
+                where id = $id
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", approvalId);
+                command.Parameters.AddWithValue("$status", decision);
+                command.Parameters.AddWithValue("$decided_at", decidedAt.ToString("O"));
+            });
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "select id, session_id, kind, summary, command, cwd, status, created_at, decided_at from approvals where id = $id";
+            command.Parameters.AddWithValue("$id", approvalId);
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadApproval(reader) : null;
+        }
+    }
+
+    public StoredModelSettings GetModelSettings()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "select base_url, model, encrypted_api_key, updated_at from model_settings where id = 1";
+
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            return new StoredModelSettings("https://api.openai.com/v1", "gpt-5.4-mini", null, DateTimeOffset.UtcNow);
+        }
+
+        return new StoredModelSettings(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            ParseTime(reader.GetString(3)));
+    }
+
+    public StoredModelSettings SaveModelSettings(string baseUrl, string model, string? encryptedApiKey)
+    {
+        var normalizedBaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "https://api.openai.com/v1" : baseUrl.Trim().TrimEnd('/');
+        var normalizedModel = string.IsNullOrWhiteSpace(model) ? "gpt-5.4-mini" : model.Trim();
+        var now = DateTimeOffset.UtcNow;
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into model_settings (id, base_url, model, encrypted_api_key, updated_at)
+                values (1, $base_url, $model, $encrypted_api_key, $updated_at)
+                on conflict(id) do update set
+                    base_url = excluded.base_url,
+                    model = excluded.model,
+                    encrypted_api_key = excluded.encrypted_api_key,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$base_url", normalizedBaseUrl);
+                command.Parameters.AddWithValue("$model", normalizedModel);
+                command.Parameters.AddWithValue("$encrypted_api_key", (object?)encryptedApiKey ?? DBNull.Value);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+
+            Execute(connection, """
+                insert into model_provider_instances (
+                    id,
+                    driver,
+                    display_name,
+                    connection_kind,
+                    base_url,
+                    model,
+                    encrypted_api_key,
+                    binary_path,
+                    home_path,
+                    server_url,
+                    launch_args,
+                    capabilities_json,
+                    enabled,
+                    created_at,
+                    updated_at
+                )
+                values (
+                    'openai_default',
+                    'openai-compatible',
+                    'OpenAI Compatible',
+                    'api-key',
+                    $base_url,
+                    $model,
+                    $encrypted_api_key,
+                    null,
+                    null,
+                    null,
+                    null,
+                    '["chat","streaming","tool-calls"]',
+                    1,
+                    $updated_at,
+                    $updated_at
+                )
+                on conflict(id) do update set
+                    base_url = excluded.base_url,
+                    model = excluded.model,
+                    encrypted_api_key = excluded.encrypted_api_key,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$base_url", normalizedBaseUrl);
+                command.Parameters.AddWithValue("$model", normalizedModel);
+                command.Parameters.AddWithValue("$encrypted_api_key", (object?)encryptedApiKey ?? DBNull.Value);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+
+            Execute(connection, """
+                insert into model_routes (purpose, provider_instance_id, model, updated_at)
+                values ('chat', 'openai_default', $model, $updated_at)
+                on conflict(purpose) do update set
+                    provider_instance_id = excluded.provider_instance_id,
+                    model = excluded.model,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$model", normalizedModel);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        return new StoredModelSettings(normalizedBaseUrl, normalizedModel, encryptedApiKey, now);
+    }
+
+    public IReadOnlyList<ModelProviderInstanceDto> ListModelProviderInstances()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, driver, display_name, connection_kind, base_url, model, encrypted_api_key, binary_path, home_path,
+                   server_url, launch_args, capabilities_json, enabled, created_at, updated_at
+            from model_provider_instances
+            order by updated_at desc, display_name
+            """;
+
+        using var reader = command.ExecuteReader();
+        var providers = new List<ModelProviderInstanceDto>();
+        while (reader.Read())
+        {
+            providers.Add(ReadModelProvider(reader).ToDto());
+        }
+
+        return providers;
+    }
+
+    public StoredModelProviderInstance? GetStoredModelProviderInstance(string providerInstanceId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, driver, display_name, connection_kind, base_url, model, encrypted_api_key, binary_path, home_path,
+                   server_url, launch_args, capabilities_json, enabled, created_at, updated_at
+            from model_provider_instances
+            where id = $id
+            """;
+        command.Parameters.AddWithValue("$id", providerInstanceId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadModelProvider(reader) : null;
+    }
+
+    public ModelProviderInstanceDto SaveModelProviderInstance(SaveModelProviderInstanceRequest request, string? encryptedApiKey)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var id = string.IsNullOrWhiteSpace(request.Id)
+            ? $"provider_{Guid.NewGuid():N}"
+            : NormalizeProviderInstanceId(request.Id);
+        var driver = NormalizePlain(request.Driver, "openai-compatible");
+        var displayName = NormalizePlain(request.DisplayName, driver);
+        var connectionKind = NormalizeConnectionKind(request.ConnectionKind, driver);
+        var baseUrl = NormalizeOptionalUrl(request.BaseUrl);
+        var model = NormalizeOptional(request.Model);
+        var capabilities = request.Capabilities is { Count: > 0 }
+            ? request.Capabilities.Select(NormalizeOptional).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            : InferCapabilities(driver, connectionKind);
+        var capabilitiesJson = JsonSerializer.Serialize(capabilities, TinadecJson.Options);
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into model_provider_instances (
+                    id,
+                    driver,
+                    display_name,
+                    connection_kind,
+                    base_url,
+                    model,
+                    encrypted_api_key,
+                    binary_path,
+                    home_path,
+                    server_url,
+                    launch_args,
+                    capabilities_json,
+                    enabled,
+                    created_at,
+                    updated_at
+                )
+                values (
+                    $id,
+                    $driver,
+                    $display_name,
+                    $connection_kind,
+                    $base_url,
+                    $model,
+                    $encrypted_api_key,
+                    $binary_path,
+                    $home_path,
+                    $server_url,
+                    $launch_args,
+                    $capabilities_json,
+                    $enabled,
+                    $created_at,
+                    $updated_at
+                )
+                on conflict(id) do update set
+                    driver = excluded.driver,
+                    display_name = excluded.display_name,
+                    connection_kind = excluded.connection_kind,
+                    base_url = excluded.base_url,
+                    model = excluded.model,
+                    encrypted_api_key = excluded.encrypted_api_key,
+                    binary_path = excluded.binary_path,
+                    home_path = excluded.home_path,
+                    server_url = excluded.server_url,
+                    launch_args = excluded.launch_args,
+                    capabilities_json = excluded.capabilities_json,
+                    enabled = excluded.enabled,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", id);
+                command.Parameters.AddWithValue("$driver", driver);
+                command.Parameters.AddWithValue("$display_name", displayName);
+                command.Parameters.AddWithValue("$connection_kind", connectionKind);
+                command.Parameters.AddWithValue("$base_url", (object?)baseUrl ?? DBNull.Value);
+                command.Parameters.AddWithValue("$model", (object?)model ?? DBNull.Value);
+                command.Parameters.AddWithValue("$encrypted_api_key", (object?)encryptedApiKey ?? DBNull.Value);
+                command.Parameters.AddWithValue("$binary_path", (object?)NormalizeOptional(request.BinaryPath) ?? DBNull.Value);
+                command.Parameters.AddWithValue("$home_path", (object?)NormalizeOptional(request.HomePath) ?? DBNull.Value);
+                command.Parameters.AddWithValue("$server_url", (object?)NormalizeOptionalUrl(request.ServerUrl) ?? DBNull.Value);
+                command.Parameters.AddWithValue("$launch_args", (object?)NormalizeOptional(request.LaunchArgs) ?? DBNull.Value);
+                command.Parameters.AddWithValue("$capabilities_json", capabilitiesJson);
+                command.Parameters.AddWithValue("$enabled", request.Enabled ? 1 : 0);
+                command.Parameters.AddWithValue("$created_at", now.ToString("O"));
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        return GetStoredModelProviderInstance(id)?.ToDto()
+            ?? throw new InvalidOperationException("Saved model provider instance was not found.");
+    }
+
+    public IReadOnlyList<ModelRouteDto> ListModelRoutes()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "select purpose, provider_instance_id, model, updated_at from model_routes order by purpose";
+
+        using var reader = command.ExecuteReader();
+        var routes = new List<ModelRouteDto>();
+        while (reader.Read())
+        {
+            routes.Add(ReadModelRoute(reader));
+        }
+
+        return routes;
+    }
+
+    public ModelRouteDto? GetModelRoute(string purpose)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "select purpose, provider_instance_id, model, updated_at from model_routes where purpose = $purpose";
+        command.Parameters.AddWithValue("$purpose", NormalizeRoutePurpose(purpose));
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadModelRoute(reader) : null;
+    }
+
+    public ModelRouteDto SaveModelRoute(string purpose, string providerInstanceId, string? model)
+    {
+        var normalizedPurpose = NormalizeRoutePurpose(purpose);
+        var normalizedModel = NormalizeOptional(model);
+        var now = DateTimeOffset.UtcNow;
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into model_routes (purpose, provider_instance_id, model, updated_at)
+                values ($purpose, $provider_instance_id, $model, $updated_at)
+                on conflict(purpose) do update set
+                    provider_instance_id = excluded.provider_instance_id,
+                    model = excluded.model,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$purpose", normalizedPurpose);
+                command.Parameters.AddWithValue("$provider_instance_id", providerInstanceId);
+                command.Parameters.AddWithValue("$model", (object?)normalizedModel ?? DBNull.Value);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        return new ModelRouteDto(normalizedPurpose, providerInstanceId, normalizedModel, now);
+    }
+
+    public IReadOnlyList<ExtensionSourceDto> ListExtensionSources()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, name, kind, location, enabled, last_refreshed_at, created_at
+            from extension_sources
+            order by name
+            """;
+
+        using var reader = command.ExecuteReader();
+        var sources = new List<ExtensionSourceDto>();
+        while (reader.Read())
+        {
+            sources.Add(ReadExtensionSource(reader));
+        }
+
+        return sources;
+    }
+
+    public ExtensionSourceDto CreateExtensionSource(CreateExtensionSourceRequest request)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var name = NormalizePlain(request.Name, "Custom Marketplace");
+        var kind = NormalizeExtensionSourceKind(request.Kind);
+        var location = NormalizePlain(request.Location, "local");
+        var id = $"source_{ExtensionCatalog.NormalizeId($"{name}-{Guid.NewGuid():N}"[..Math.Min(name.Length + 9, name.Length + 9)])}";
+
+        var source = new ExtensionSourceDto(id, name, kind, location, request.Enabled, null, now);
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into extension_sources (id, name, kind, location, enabled, last_refreshed_at, created_at)
+                values ($id, $name, $kind, $location, $enabled, null, $created_at)
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", source.Id);
+                command.Parameters.AddWithValue("$name", source.Name);
+                command.Parameters.AddWithValue("$kind", source.Kind);
+                command.Parameters.AddWithValue("$location", source.Location);
+                command.Parameters.AddWithValue("$enabled", source.Enabled ? 1 : 0);
+                command.Parameters.AddWithValue("$created_at", source.CreatedAt.ToString("O"));
+            });
+        }
+
+        return source;
+    }
+
+    public ExtensionSourceDto? RefreshExtensionSource(string sourceId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                update extension_sources
+                set last_refreshed_at = $last_refreshed_at
+                where id = $id
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", sourceId);
+                command.Parameters.AddWithValue("$last_refreshed_at", now.ToString("O"));
+            });
+
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                select id, name, kind, location, enabled, last_refreshed_at, created_at
+                from extension_sources
+                where id = $id
+                """;
+            command.Parameters.AddWithValue("$id", sourceId);
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadExtensionSource(reader) : null;
+        }
+    }
+
+    public IReadOnlyList<MarketCatalogItemDto> ListMarketCatalog(string? kind, string? query, string? sourceId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var where = new List<string>();
+        if (!string.IsNullOrWhiteSpace(kind) && kind != "all")
+        {
+            where.Add("c.kind = $kind");
+            command.Parameters.AddWithValue("$kind", kind.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(sourceId))
+        {
+            where.Add("c.source_id = $source_id");
+            command.Parameters.AddWithValue("$source_id", sourceId.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            where.Add("(c.display_name like $query or c.description like $query or c.extension_id like $query)");
+            command.Parameters.AddWithValue("$query", $"%{query.Trim()}%");
+        }
+
+        command.CommandText = """
+            select c.catalog_id, c.source_id, c.extension_id, c.kind, c.version, c.publisher, c.display_name,
+                   c.description, c.source_kind, c.source_location, c.capabilities_json, c.permissions_json,
+                   i.id
+            from extension_catalog_cache c
+            left join installed_extensions i on i.extension_id = c.extension_id
+            """
+            + (where.Count == 0 ? string.Empty : " where " + string.Join(" and ", where))
+            + " order by c.kind, c.display_name";
+
+        using var reader = command.ExecuteReader();
+        var items = new List<MarketCatalogItemDto>();
+        while (reader.Read())
+        {
+            items.Add(ReadMarketCatalogItem(reader));
+        }
+
+        return items;
+    }
+
+    public MarketCatalogItemDto? GetMarketCatalogItem(string catalogId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select c.catalog_id, c.source_id, c.extension_id, c.kind, c.version, c.publisher, c.display_name,
+                   c.description, c.source_kind, c.source_location, c.capabilities_json, c.permissions_json,
+                   i.id
+            from extension_catalog_cache c
+            left join installed_extensions i on i.extension_id = c.extension_id
+            where c.catalog_id = $catalog_id
+            """;
+        command.Parameters.AddWithValue("$catalog_id", catalogId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadMarketCatalogItem(reader) : null;
+    }
+
+    public ExtensionInstallPreviewDto PreviewExtensionInstall(InstallExtensionPreviewRequest request)
+    {
+        var catalogItem = string.IsNullOrWhiteSpace(request.CatalogId) ? null : GetMarketCatalogItem(request.CatalogId);
+        if (!string.IsNullOrWhiteSpace(request.CatalogId) && catalogItem is null)
+        {
+            throw new InvalidOperationException("Market catalog item was not found.");
+        }
+
+        var descriptor = ExtensionCatalog.DescriptorFromRequest(request, catalogItem);
+        ValidateExtensionDescriptor(descriptor);
+        return ExtensionCatalog.BuildPreview(descriptor);
+    }
+
+    public ExtensionInstallResultDto InstallExtension(InstallExtensionRequest request)
+    {
+        var previewRequest = new InstallExtensionPreviewRequest(request.CatalogId, request.SourceKind, request.SourceLocation, request.ManifestJson);
+        var catalogItem = string.IsNullOrWhiteSpace(request.CatalogId) ? null : GetMarketCatalogItem(request.CatalogId);
+        var descriptor = ExtensionCatalog.DescriptorFromRequest(previewRequest, catalogItem);
+        ValidateExtensionDescriptor(descriptor);
+        var preview = ExtensionCatalog.BuildPreview(descriptor);
+
+        if (string.IsNullOrWhiteSpace(request.ApprovalId))
+        {
+            var approval = CreateApproval(new CreateApprovalRequest(
+                null,
+                "extension.install",
+                preview.ApprovalSummary,
+                descriptor.SourceLocation,
+                null));
+            return new ExtensionInstallResultDto(true, approval, null, preview);
+        }
+
+        var approvalStatus = GetApprovalStatus(request.ApprovalId);
+        if (!string.Equals(approvalStatus, "approved", StringComparison.OrdinalIgnoreCase))
+        {
+            var approval = GetApproval(request.ApprovalId);
+            return new ExtensionInstallResultDto(true, approval, null, preview);
+        }
+
+        var installed = SaveInstalledExtension(catalogItem?.CatalogId, descriptor, enabled: false, "installed_disabled", "Installed and waiting for explicit enablement.");
+        return new ExtensionInstallResultDto(false, null, installed, preview);
+    }
+
+    public IReadOnlyList<InstalledExtensionDto> ListInstalledExtensions()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, catalog_id, extension_id, kind, version, publisher, display_name, description, source_kind,
+                   source_location, capabilities_json, permissions_json, enabled, status, status_message, installed_at, updated_at
+            from installed_extensions
+            order by updated_at desc, display_name
+            """;
+
+        using var reader = command.ExecuteReader();
+        var items = new List<InstalledExtensionDto>();
+        while (reader.Read())
+        {
+            items.Add(ReadInstalledExtension(reader));
+        }
+
+        return items;
+    }
+
+    public InstalledExtensionDto? SetExtensionEnabled(string installedExtensionId, bool enabled)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var existing = GetInstalledExtension(installedExtensionId);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        var status = enabled ? "enabled" : "installed_disabled";
+        var statusMessage = enabled
+            ? "Enabled. Runtime adapters will be made available through Core policy."
+            : "Installed and waiting for explicit enablement.";
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                update installed_extensions
+                set enabled = $enabled, status = $status, status_message = $status_message, updated_at = $updated_at
+                where id = $id
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", installedExtensionId);
+                command.Parameters.AddWithValue("$enabled", enabled ? 1 : 0);
+                command.Parameters.AddWithValue("$status", status);
+                command.Parameters.AddWithValue("$status_message", statusMessage);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+
+            if (enabled)
+            {
+                UpsertRuntimeCache(connection, existing, now);
+            }
+            else
+            {
+                RemoveRuntimeCache(connection, existing.Id);
+            }
+        }
+
+        return GetInstalledExtension(installedExtensionId);
+    }
+
+    public bool DeleteInstalledExtension(string installedExtensionId)
+    {
+        var existing = GetInstalledExtension(installedExtensionId);
+        if (existing is null)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            RemoveRuntimeCache(connection, installedExtensionId);
+            Execute(connection, "delete from installed_extensions where id = $id", command => command.Parameters.AddWithValue("$id", installedExtensionId));
+        }
+
+        return true;
+    }
+
+    public IReadOnlyList<McpServerDto> ListMcpServers()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "select id, extension_id, name, transport, status, tools_json, updated_at from mcp_servers order by name";
+        using var reader = command.ExecuteReader();
+        var servers = new List<McpServerDto>();
+        while (reader.Read())
+        {
+            servers.Add(ReadMcpServer(reader));
+        }
+
+        return servers;
+    }
+
+    public McpServerDto? ReloadMcpServer(string serverId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                update mcp_servers
+                set status = 'ready', updated_at = $updated_at
+                where id = $id
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", serverId);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        return ListMcpServers().FirstOrDefault(server => server.Id == serverId);
+    }
+
+    public IReadOnlyList<AcpAdapterDto> ListAcpAdapters()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "select id, extension_id, name, command, status, status_message, capabilities_json, updated_at from acp_adapters order by name";
+        using var reader = command.ExecuteReader();
+        var adapters = new List<AcpAdapterDto>();
+        while (reader.Read())
+        {
+            adapters.Add(ReadAcpAdapter(reader));
+        }
+
+        return adapters;
+    }
+
+    public AcpAdapterDto? ProbeAcpAdapter(string adapterId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                update acp_adapters
+                set status = 'ready', status_message = 'Probe completed against declarative adapter metadata.', updated_at = $updated_at
+                where id = $id
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", adapterId);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        return ListAcpAdapters().FirstOrDefault(adapter => adapter.Id == adapterId);
+    }
+
+    public IReadOnlyList<AgentModeDto> ListAgentModes() => AgentCatalog.Modes;
+
+    public IReadOnlyList<AgentProfileDto> ListAgentProfiles()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, name, layer, agent_type, mode, description, model_route_purpose, allowed_tools_json,
+                   capabilities_json, enabled, is_builtin, updated_at
+            from agent_profiles
+            order by case layer when 'planning' then 0 else 1 end, name
+            """;
+        using var reader = command.ExecuteReader();
+        var agents = new List<AgentProfileDto>();
+        while (reader.Read())
+        {
+            agents.Add(ReadAgentProfile(reader));
+        }
+
+        return agents;
+    }
+
+    public AgentProfileDto? SaveAgentProfile(string agentId, SaveAgentProfileRequest request)
+    {
+        var existing = ListAgentProfiles().FirstOrDefault(agent => agent.Id == agentId);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var mode = AgentCatalog.Modes.Any(item => item.Id == request.Mode) ? request.Mode : existing.Mode;
+        var layer = request.Layer is "planning" or "execution" ? request.Layer : existing.Layer;
+        var tools = request.AllowedTools is { Count: > 0 } ? request.AllowedTools : existing.AllowedTools;
+        var capabilities = request.Capabilities is { Count: > 0 } ? request.Capabilities : existing.Capabilities;
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                update agent_profiles
+                set name = $name,
+                    layer = $layer,
+                    agent_type = $agent_type,
+                    mode = $mode,
+                    description = $description,
+                    model_route_purpose = $model_route_purpose,
+                    allowed_tools_json = $allowed_tools_json,
+                    capabilities_json = $capabilities_json,
+                    enabled = $enabled,
+                    updated_at = $updated_at
+                where id = $id
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", agentId);
+                command.Parameters.AddWithValue("$name", NormalizePlain(request.Name, existing.Name));
+                command.Parameters.AddWithValue("$layer", layer);
+                command.Parameters.AddWithValue("$agent_type", NormalizePlain(request.AgentType, existing.AgentType));
+                command.Parameters.AddWithValue("$mode", mode);
+                command.Parameters.AddWithValue("$description", NormalizePlain(request.Description, existing.Description));
+                command.Parameters.AddWithValue("$model_route_purpose", NormalizeRoutePurpose(request.ModelRoutePurpose));
+                command.Parameters.AddWithValue("$allowed_tools_json", JsonSerializer.Serialize(tools, TinadecJson.Options));
+                command.Parameters.AddWithValue("$capabilities_json", JsonSerializer.Serialize(capabilities, TinadecJson.Options));
+                command.Parameters.AddWithValue("$enabled", request.Enabled ? 1 : 0);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        return ListAgentProfiles().FirstOrDefault(agent => agent.Id == agentId);
+    }
+
+    public AgentProfileDto? UpdateAgentMode(string agentId, string mode)
+    {
+        var existing = ListAgentProfiles().FirstOrDefault(agent => agent.Id == agentId);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        return SaveAgentProfile(agentId, new SaveAgentProfileRequest(
+            existing.Name,
+            existing.Layer,
+            existing.AgentType,
+            mode,
+            existing.Description,
+            existing.ModelRoutePurpose,
+            existing.AllowedTools,
+            existing.Capabilities,
+            existing.Enabled));
+    }
+
+    public IReadOnlyList<AgentCandidateDto> ListAgentCandidates()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, generated_by_agent_id, name, layer, agent_type, description, suggested_tools_json,
+                   evaluation_notes_json, status, created_at
+            from agent_candidates
+            order by created_at desc
+            """;
+        using var reader = command.ExecuteReader();
+        var candidates = new List<AgentCandidateDto>();
+        while (reader.Read())
+        {
+            candidates.Add(ReadAgentCandidate(reader));
+        }
+
+        return candidates;
+    }
+
+    public OrchestrationSnapshotDto CreateOrchestrationRun(string sessionId, string? userMessageId, string userContent)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var run = new OrchestrationRunDto(
+            $"run_{Guid.NewGuid():N}",
+            sessionId,
+            userMessageId,
+            "planned",
+            SummarizeUserGoal(userContent),
+            now,
+            now);
+        var graph = new TaskGraphDto(
+            $"graph_{Guid.NewGuid():N}",
+            run.Id,
+            sessionId,
+            "Two-layer orchestration",
+            "ready",
+            now,
+            now);
+
+        var taskSpecs = BuildTaskSpecs(userContent);
+        var enabledAgents = ListAgentProfiles()
+            .Where(agent => agent.Enabled && agent.Layer == "execution")
+            .ToArray();
+        var nodes = new List<TaskNodeDto>();
+        var assignments = new List<AgentAssignmentDto>();
+        var stepResults = new List<StepResultDto>();
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            InsertRun(connection, run);
+            InsertTaskGraph(connection, graph);
+
+            for (var index = 0; index < taskSpecs.Count; index++)
+            {
+                var spec = taskSpecs[index];
+                var node = new TaskNodeDto(
+                    $"node_{Guid.NewGuid():N}",
+                    graph.Id,
+                    run.Id,
+                    sessionId,
+                    spec.Title,
+                    spec.Description,
+                    "queued",
+                    index + 1,
+                    spec.Risk,
+                    spec.SuccessCriteria,
+                    index == 0 ? [] : [nodes[0].Id],
+                    spec.RequiredCapabilities,
+                    now,
+                    now);
+                nodes.Add(node);
+                InsertTaskNode(connection, node);
+
+                var agent = ResolveExecutionAgent(enabledAgents, spec.AgentType, spec.RequiredCapabilities);
+                if (agent is null)
+                {
+                    continue;
+                }
+
+                var assignment = new AgentAssignmentDto(
+                    $"assign_{Guid.NewGuid():N}",
+                    run.Id,
+                    node.Id,
+                    agent.Id,
+                    agent.Name,
+                    agent.Layer,
+                    agent.AgentType,
+                    agent.ModelRoutePurpose,
+                    spec.PermissionMode,
+                    agent.AllowedTools,
+                    "assigned",
+                    now);
+                assignments.Add(assignment);
+                InsertAgentAssignment(connection, assignment);
+
+                var result = new StepResultDto(
+                    $"step_{Guid.NewGuid():N}",
+                    run.Id,
+                    node.Id,
+                    agent.Id,
+                    "stubbed",
+                    $"{agent.Name} is assigned. Runtime execution remains read-only until the task requests approved tools.",
+                    ["assignment recorded", $"permission mode: {spec.PermissionMode}", $"model route: {agent.ModelRoutePurpose}"],
+                    now);
+                stepResults.Add(result);
+                InsertStepResult(connection, result);
+            }
+
+            var contextPack = new ContextPackDto(
+                $"ctx_{Guid.NewGuid():N}",
+                run.Id,
+                sessionId,
+                "agent_context_compressor",
+                $"Compressed planning context for {nodes.Count} task nodes. Source user goal: {run.Summary}",
+                12000,
+                0.35,
+                nodes.Select(node => $"{node.Id}:{node.Title}").ToArray(),
+                now);
+            InsertContextPack(connection, contextPack);
+
+            var finding = new SupervisionFindingDto(
+                $"sup_{Guid.NewGuid():N}",
+                run.Id,
+                sessionId,
+                "info",
+                "goal-alignment",
+                "Run is constrained to visible planning, read-only assignment stubs, and approval-gated execution.",
+                "Review the task graph before approving mutating tools, shell, Git, network, MCP, or ACP actions.",
+                "open",
+                now);
+            InsertSupervisionFinding(connection, finding);
+        }
+
+        return GetOrchestrationSnapshot(sessionId);
+    }
+
+    public OrchestrationSnapshotDto GetOrchestrationSnapshot(string sessionId)
+    {
+        var run = ListRuns(sessionId).FirstOrDefault();
+        if (run is null)
+        {
+            return new OrchestrationSnapshotDto(null, null, [], [], [], [], []);
+        }
+
+        var graph = GetTaskGraph(run.Id);
+        return new OrchestrationSnapshotDto(
+            run,
+            graph,
+            ListTaskNodes(sessionId).Where(node => node.RunId == run.Id).ToArray(),
+            ListAgentAssignments(run.Id),
+            ListStepResults(run.Id),
+            ListContextPacks(sessionId).Where(pack => pack.RunId == run.Id).ToArray(),
+            ListSupervisionFindings(sessionId).Where(finding => finding.RunId == run.Id).ToArray());
+    }
+
+    public IReadOnlyList<OrchestrationRunDto> ListRuns(string sessionId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, session_id, user_message_id, status, summary, created_at, updated_at
+            from orchestration_runs
+            where session_id = $session_id
+            order by created_at desc
+            """;
+        command.Parameters.AddWithValue("$session_id", sessionId);
+
+        using var reader = command.ExecuteReader();
+        var runs = new List<OrchestrationRunDto>();
+        while (reader.Read())
+        {
+            runs.Add(ReadOrchestrationRun(reader));
+        }
+
+        return runs;
+    }
+
+    public IReadOnlyList<TaskNodeDto> ListTaskNodes(string sessionId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, graph_id, run_id, session_id, title, description, status, priority, risk,
+                   success_criteria_json, dependencies_json, required_capabilities_json, created_at, updated_at
+            from task_nodes
+            where session_id = $session_id
+            order by priority asc, created_at asc
+            """;
+        command.Parameters.AddWithValue("$session_id", sessionId);
+
+        using var reader = command.ExecuteReader();
+        var nodes = new List<TaskNodeDto>();
+        while (reader.Read())
+        {
+            nodes.Add(ReadTaskNode(reader));
+        }
+
+        return nodes;
+    }
+
+    public IReadOnlyList<ContextPackDto> ListContextPacks(string sessionId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, run_id, session_id, created_by_agent_id, summary, token_budget,
+                   compression_ratio, evidence_map_json, created_at
+            from context_packs
+            where session_id = $session_id
+            order by created_at desc
+            """;
+        command.Parameters.AddWithValue("$session_id", sessionId);
+
+        using var reader = command.ExecuteReader();
+        var packs = new List<ContextPackDto>();
+        while (reader.Read())
+        {
+            packs.Add(ReadContextPack(reader));
+        }
+
+        return packs;
+    }
+
+    public IReadOnlyList<SupervisionFindingDto> ListSupervisionFindings(string sessionId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, run_id, session_id, severity, category, summary, recommendation, status, created_at
+            from supervision_findings
+            where session_id = $session_id
+            order by created_at desc
+            """;
+        command.Parameters.AddWithValue("$session_id", sessionId);
+
+        using var reader = command.ExecuteReader();
+        var findings = new List<SupervisionFindingDto>();
+        while (reader.Read())
+        {
+            findings.Add(ReadSupervisionFinding(reader));
+        }
+
+        return findings;
+    }
+
+    private TaskGraphDto? GetTaskGraph(string runId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, run_id, session_id, title, status, created_at, updated_at
+            from task_graphs
+            where run_id = $run_id
+            order by created_at desc
+            limit 1
+            """;
+        command.Parameters.AddWithValue("$run_id", runId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadTaskGraph(reader) : null;
+    }
+
+    private IReadOnlyList<AgentAssignmentDto> ListAgentAssignments(string runId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, run_id, task_node_id, agent_id, agent_name, agent_layer, agent_type,
+                   model_route_purpose, permission_mode, allowed_tools_json, status, created_at
+            from agent_assignments
+            where run_id = $run_id
+            order by created_at asc
+            """;
+        command.Parameters.AddWithValue("$run_id", runId);
+
+        using var reader = command.ExecuteReader();
+        var assignments = new List<AgentAssignmentDto>();
+        while (reader.Read())
+        {
+            assignments.Add(ReadAgentAssignment(reader));
+        }
+
+        return assignments;
+    }
+
+    private IReadOnlyList<StepResultDto> ListStepResults(string runId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, run_id, task_node_id, agent_id, status, summary, evidence_json, created_at
+            from step_results
+            where run_id = $run_id
+            order by created_at asc
+            """;
+        command.Parameters.AddWithValue("$run_id", runId);
+
+        using var reader = command.ExecuteReader();
+        var results = new List<StepResultDto>();
+        while (reader.Read())
+        {
+            results.Add(ReadStepResult(reader));
+        }
+
+        return results;
+    }
+
+    private sealed record TaskSpec(
+        string Title,
+        string Description,
+        string AgentType,
+        string Risk,
+        string PermissionMode,
+        IReadOnlyList<string> SuccessCriteria,
+        IReadOnlyList<string> RequiredCapabilities);
+
+    private static IReadOnlyList<TaskSpec> BuildTaskSpecs(string userContent)
+    {
+        var goal = SummarizeUserGoal(userContent);
+        return
+        [
+            new(
+                "Plan the work",
+                $"Break down the user goal and keep success criteria visible: {goal}",
+                "plan-executor",
+                "read-only",
+                "observe",
+                ["Task graph exists", "Success criteria are explicit", "Approval points are marked"],
+                ["step.run"]),
+            new(
+                "Search relevant context",
+                "Collect files, symbols, docs, or prior events needed before execution.",
+                "search-executor",
+                "read-only",
+                "observe",
+                ["Relevant evidence is collected", "No workspace mutation occurs"],
+                ["search.query", "evidence.collect"]),
+            new(
+                "Locate code touchpoints",
+                "Find concrete code locations, dependencies, and boundaries for the requested change.",
+                "code-locator",
+                "read-only",
+                "observe",
+                ["Candidate files are identified", "Ownership boundaries are recorded"],
+                ["code.search", "evidence.collect"]),
+            new(
+                "Prepare validation",
+                "Identify tests, checks, or commands that should validate the result after approval.",
+                "test-runner",
+                "approval-gated",
+                "approval",
+                ["Validation commands are named", "Shell execution remains approval-gated"],
+                ["test.run", "failure.classify"]),
+            new(
+                "Synthesize execution guidance",
+                "Combine planning, evidence, supervision, and model reasoning into the next actionable step.",
+                "synthesis-executor",
+                "read-only",
+                "observe",
+                ["Next step is clear", "Unresolved risks are visible"],
+                ["model.reason", "step.result"])
+        ];
+    }
+
+    private static AgentProfileDto? ResolveExecutionAgent(
+        IReadOnlyList<AgentProfileDto> agents,
+        string preferredAgentType,
+        IReadOnlyList<string> requiredCapabilities)
+    {
+        return agents.FirstOrDefault(agent => agent.AgentType == preferredAgentType)
+            ?? agents.FirstOrDefault(agent =>
+                agent.AgentType != preferredAgentType &&
+                requiredCapabilities.Any(required => agent.Capabilities.Contains(required)));
+    }
+
+    private static string SummarizeUserGoal(string content)
+    {
+        var normalized = NormalizePlain(content, "User requested a TinadecCode task.");
+        normalized = normalized.ReplaceLineEndings(" ");
+        return normalized.Length <= 140 ? normalized : $"{normalized[..137]}...";
+    }
+
+    private static void InsertRun(SqliteConnection connection, OrchestrationRunDto run)
+    {
+        Execute(connection, """
+            insert into orchestration_runs (id, session_id, user_message_id, status, summary, created_at, updated_at)
+            values ($id, $session_id, $user_message_id, $status, $summary, $created_at, $updated_at)
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", run.Id);
+            command.Parameters.AddWithValue("$session_id", run.SessionId);
+            command.Parameters.AddWithValue("$user_message_id", (object?)run.UserMessageId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$status", run.Status);
+            command.Parameters.AddWithValue("$summary", run.Summary);
+            command.Parameters.AddWithValue("$created_at", run.CreatedAt.ToString("O"));
+            command.Parameters.AddWithValue("$updated_at", run.UpdatedAt.ToString("O"));
+        });
+    }
+
+    private static void InsertTaskGraph(SqliteConnection connection, TaskGraphDto graph)
+    {
+        Execute(connection, """
+            insert into task_graphs (id, run_id, session_id, title, status, created_at, updated_at)
+            values ($id, $run_id, $session_id, $title, $status, $created_at, $updated_at)
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", graph.Id);
+            command.Parameters.AddWithValue("$run_id", graph.RunId);
+            command.Parameters.AddWithValue("$session_id", graph.SessionId);
+            command.Parameters.AddWithValue("$title", graph.Title);
+            command.Parameters.AddWithValue("$status", graph.Status);
+            command.Parameters.AddWithValue("$created_at", graph.CreatedAt.ToString("O"));
+            command.Parameters.AddWithValue("$updated_at", graph.UpdatedAt.ToString("O"));
+        });
+    }
+
+    private static void InsertTaskNode(SqliteConnection connection, TaskNodeDto node)
+    {
+        Execute(connection, """
+            insert into task_nodes (
+                id, graph_id, run_id, session_id, title, description, status, priority, risk,
+                success_criteria_json, dependencies_json, required_capabilities_json, created_at, updated_at
+            )
+            values (
+                $id, $graph_id, $run_id, $session_id, $title, $description, $status, $priority, $risk,
+                $success_criteria_json, $dependencies_json, $required_capabilities_json, $created_at, $updated_at
+            )
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", node.Id);
+            command.Parameters.AddWithValue("$graph_id", node.GraphId);
+            command.Parameters.AddWithValue("$run_id", node.RunId);
+            command.Parameters.AddWithValue("$session_id", node.SessionId);
+            command.Parameters.AddWithValue("$title", node.Title);
+            command.Parameters.AddWithValue("$description", node.Description);
+            command.Parameters.AddWithValue("$status", node.Status);
+            command.Parameters.AddWithValue("$priority", node.Priority);
+            command.Parameters.AddWithValue("$risk", node.Risk);
+            command.Parameters.AddWithValue("$success_criteria_json", JsonSerializer.Serialize(node.SuccessCriteria, TinadecJson.Options));
+            command.Parameters.AddWithValue("$dependencies_json", JsonSerializer.Serialize(node.Dependencies, TinadecJson.Options));
+            command.Parameters.AddWithValue("$required_capabilities_json", JsonSerializer.Serialize(node.RequiredCapabilities, TinadecJson.Options));
+            command.Parameters.AddWithValue("$created_at", node.CreatedAt.ToString("O"));
+            command.Parameters.AddWithValue("$updated_at", node.UpdatedAt.ToString("O"));
+        });
+    }
+
+    private static void InsertAgentAssignment(SqliteConnection connection, AgentAssignmentDto assignment)
+    {
+        Execute(connection, """
+            insert into agent_assignments (
+                id, run_id, task_node_id, agent_id, agent_name, agent_layer, agent_type,
+                model_route_purpose, permission_mode, allowed_tools_json, status, created_at
+            )
+            values (
+                $id, $run_id, $task_node_id, $agent_id, $agent_name, $agent_layer, $agent_type,
+                $model_route_purpose, $permission_mode, $allowed_tools_json, $status, $created_at
+            )
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", assignment.Id);
+            command.Parameters.AddWithValue("$run_id", assignment.RunId);
+            command.Parameters.AddWithValue("$task_node_id", assignment.TaskNodeId);
+            command.Parameters.AddWithValue("$agent_id", assignment.AgentId);
+            command.Parameters.AddWithValue("$agent_name", assignment.AgentName);
+            command.Parameters.AddWithValue("$agent_layer", assignment.AgentLayer);
+            command.Parameters.AddWithValue("$agent_type", assignment.AgentType);
+            command.Parameters.AddWithValue("$model_route_purpose", assignment.ModelRoutePurpose);
+            command.Parameters.AddWithValue("$permission_mode", assignment.PermissionMode);
+            command.Parameters.AddWithValue("$allowed_tools_json", JsonSerializer.Serialize(assignment.AllowedTools, TinadecJson.Options));
+            command.Parameters.AddWithValue("$status", assignment.Status);
+            command.Parameters.AddWithValue("$created_at", assignment.CreatedAt.ToString("O"));
+        });
+    }
+
+    private static void InsertStepResult(SqliteConnection connection, StepResultDto result)
+    {
+        Execute(connection, """
+            insert into step_results (id, run_id, task_node_id, agent_id, status, summary, evidence_json, created_at)
+            values ($id, $run_id, $task_node_id, $agent_id, $status, $summary, $evidence_json, $created_at)
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", result.Id);
+            command.Parameters.AddWithValue("$run_id", result.RunId);
+            command.Parameters.AddWithValue("$task_node_id", result.TaskNodeId);
+            command.Parameters.AddWithValue("$agent_id", result.AgentId);
+            command.Parameters.AddWithValue("$status", result.Status);
+            command.Parameters.AddWithValue("$summary", result.Summary);
+            command.Parameters.AddWithValue("$evidence_json", JsonSerializer.Serialize(result.Evidence, TinadecJson.Options));
+            command.Parameters.AddWithValue("$created_at", result.CreatedAt.ToString("O"));
+        });
+    }
+
+    private static void InsertContextPack(SqliteConnection connection, ContextPackDto pack)
+    {
+        Execute(connection, """
+            insert into context_packs (
+                id, run_id, session_id, created_by_agent_id, summary, token_budget,
+                compression_ratio, evidence_map_json, created_at
+            )
+            values (
+                $id, $run_id, $session_id, $created_by_agent_id, $summary, $token_budget,
+                $compression_ratio, $evidence_map_json, $created_at
+            )
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", pack.Id);
+            command.Parameters.AddWithValue("$run_id", pack.RunId);
+            command.Parameters.AddWithValue("$session_id", pack.SessionId);
+            command.Parameters.AddWithValue("$created_by_agent_id", pack.CreatedByAgentId);
+            command.Parameters.AddWithValue("$summary", pack.Summary);
+            command.Parameters.AddWithValue("$token_budget", pack.TokenBudget);
+            command.Parameters.AddWithValue("$compression_ratio", pack.CompressionRatio);
+            command.Parameters.AddWithValue("$evidence_map_json", JsonSerializer.Serialize(pack.EvidenceMap, TinadecJson.Options));
+            command.Parameters.AddWithValue("$created_at", pack.CreatedAt.ToString("O"));
+        });
+    }
+
+    private static void InsertSupervisionFinding(SqliteConnection connection, SupervisionFindingDto finding)
+    {
+        Execute(connection, """
+            insert into supervision_findings (
+                id, run_id, session_id, severity, category, summary, recommendation, status, created_at
+            )
+            values (
+                $id, $run_id, $session_id, $severity, $category, $summary, $recommendation, $status, $created_at
+            )
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", finding.Id);
+            command.Parameters.AddWithValue("$run_id", finding.RunId);
+            command.Parameters.AddWithValue("$session_id", finding.SessionId);
+            command.Parameters.AddWithValue("$severity", finding.Severity);
+            command.Parameters.AddWithValue("$category", finding.Category);
+            command.Parameters.AddWithValue("$summary", finding.Summary);
+            command.Parameters.AddWithValue("$recommendation", finding.Recommendation);
+            command.Parameters.AddWithValue("$status", finding.Status);
+            command.Parameters.AddWithValue("$created_at", finding.CreatedAt.ToString("O"));
+        });
+    }
+
+    private void SeedBuiltinExtensions(SqliteConnection connection)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var source = ExtensionCatalog.BuiltinSource(now);
+        Execute(connection, """
+            insert into extension_sources (id, name, kind, location, enabled, last_refreshed_at, created_at)
+            values ($id, $name, $kind, $location, $enabled, $last_refreshed_at, $created_at)
+            on conflict(id) do update set
+                name = excluded.name,
+                kind = excluded.kind,
+                location = excluded.location,
+                enabled = excluded.enabled,
+                last_refreshed_at = excluded.last_refreshed_at
+            """, command =>
+        {
+            command.Parameters.AddWithValue("$id", source.Id);
+            command.Parameters.AddWithValue("$name", source.Name);
+            command.Parameters.AddWithValue("$kind", source.Kind);
+            command.Parameters.AddWithValue("$location", source.Location);
+            command.Parameters.AddWithValue("$enabled", source.Enabled ? 1 : 0);
+            command.Parameters.AddWithValue("$last_refreshed_at", source.LastRefreshedAt?.ToString("O") ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$created_at", source.CreatedAt.ToString("O"));
+        });
+
+        foreach (var descriptor in ExtensionCatalog.BuiltinDescriptors)
+        {
+            var catalogId = $"catalog_{descriptor.ExtensionId}";
+            Execute(connection, """
+                insert into extension_catalog_cache (
+                    catalog_id,
+                    source_id,
+                    extension_id,
+                    kind,
+                    version,
+                    publisher,
+                    display_name,
+                    description,
+                    source_kind,
+                    source_location,
+                    capabilities_json,
+                    permissions_json,
+                    manifest_json,
+                    updated_at
+                )
+                values (
+                    $catalog_id,
+                    $source_id,
+                    $extension_id,
+                    $kind,
+                    $version,
+                    $publisher,
+                    $display_name,
+                    $description,
+                    $source_kind,
+                    $source_location,
+                    $capabilities_json,
+                    $permissions_json,
+                    $manifest_json,
+                    $updated_at
+                )
+                on conflict(catalog_id) do update set
+                    source_id = excluded.source_id,
+                    extension_id = excluded.extension_id,
+                    kind = excluded.kind,
+                    version = excluded.version,
+                    publisher = excluded.publisher,
+                    display_name = excluded.display_name,
+                    description = excluded.description,
+                    source_kind = excluded.source_kind,
+                    source_location = excluded.source_location,
+                    capabilities_json = excluded.capabilities_json,
+                    permissions_json = excluded.permissions_json,
+                    manifest_json = excluded.manifest_json,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$catalog_id", catalogId);
+                command.Parameters.AddWithValue("$source_id", ExtensionCatalog.BuiltinSourceId);
+                command.Parameters.AddWithValue("$extension_id", descriptor.ExtensionId);
+                command.Parameters.AddWithValue("$kind", descriptor.Kind);
+                command.Parameters.AddWithValue("$version", descriptor.Version);
+                command.Parameters.AddWithValue("$publisher", descriptor.Publisher);
+                command.Parameters.AddWithValue("$display_name", descriptor.DisplayName);
+                command.Parameters.AddWithValue("$description", descriptor.Description);
+                command.Parameters.AddWithValue("$source_kind", descriptor.SourceKind);
+                command.Parameters.AddWithValue("$source_location", descriptor.SourceLocation);
+                command.Parameters.AddWithValue("$capabilities_json", JsonSerializer.Serialize(descriptor.Capabilities, TinadecJson.Options));
+                command.Parameters.AddWithValue("$permissions_json", JsonSerializer.Serialize(descriptor.Permissions, TinadecJson.Options));
+                command.Parameters.AddWithValue("$manifest_json", descriptor.ManifestJson);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+    }
+
+    private void SeedBuiltinAgents(SqliteConnection connection)
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var profile in AgentCatalog.Profiles)
+        {
+            Execute(connection, """
+                insert into agent_profiles (
+                    id,
+                    name,
+                    layer,
+                    agent_type,
+                    mode,
+                    description,
+                    model_route_purpose,
+                    allowed_tools_json,
+                    capabilities_json,
+                    enabled,
+                    is_builtin,
+                    updated_at
+                )
+                values (
+                    $id,
+                    $name,
+                    $layer,
+                    $agent_type,
+                    $mode,
+                    $description,
+                    $model_route_purpose,
+                    $allowed_tools_json,
+                    $capabilities_json,
+                    1,
+                    1,
+                    $updated_at
+                )
+                on conflict(id) do update set
+                    name = excluded.name,
+                    layer = excluded.layer,
+                    agent_type = excluded.agent_type,
+                    description = excluded.description,
+                    model_route_purpose = excluded.model_route_purpose,
+                    allowed_tools_json = excluded.allowed_tools_json,
+                    capabilities_json = excluded.capabilities_json,
+                    is_builtin = 1,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", profile.Id);
+                command.Parameters.AddWithValue("$name", profile.Name);
+                command.Parameters.AddWithValue("$layer", profile.Layer);
+                command.Parameters.AddWithValue("$agent_type", profile.AgentType);
+                command.Parameters.AddWithValue("$mode", profile.Mode);
+                command.Parameters.AddWithValue("$description", profile.Description);
+                command.Parameters.AddWithValue("$model_route_purpose", profile.ModelRoutePurpose);
+                command.Parameters.AddWithValue("$allowed_tools_json", JsonSerializer.Serialize(profile.AllowedTools, TinadecJson.Options));
+                command.Parameters.AddWithValue("$capabilities_json", JsonSerializer.Serialize(profile.Capabilities, TinadecJson.Options));
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+
+            Execute(connection, """
+                insert into model_routes (purpose, provider_instance_id, model, updated_at)
+                select $purpose, 'openai_default', model, $updated_at
+                from model_provider_instances
+                where id = 'openai_default'
+                on conflict(purpose) do nothing
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$purpose", NormalizeRoutePurpose(profile.ModelRoutePurpose));
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        foreach (var candidate in AgentCatalog.Candidates)
+        {
+            Execute(connection, """
+                insert into agent_candidates (
+                    id,
+                    generated_by_agent_id,
+                    name,
+                    layer,
+                    agent_type,
+                    description,
+                    suggested_tools_json,
+                    evaluation_notes_json,
+                    status,
+                    created_at
+                )
+                values (
+                    $id,
+                    $generated_by_agent_id,
+                    $name,
+                    $layer,
+                    $agent_type,
+                    $description,
+                    $suggested_tools_json,
+                    $evaluation_notes_json,
+                    'proposed',
+                    $created_at
+                )
+                on conflict(id) do update set
+                    generated_by_agent_id = excluded.generated_by_agent_id,
+                    name = excluded.name,
+                    layer = excluded.layer,
+                    agent_type = excluded.agent_type,
+                    description = excluded.description,
+                    suggested_tools_json = excluded.suggested_tools_json,
+                    evaluation_notes_json = excluded.evaluation_notes_json
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", candidate.Id);
+                command.Parameters.AddWithValue("$generated_by_agent_id", candidate.GeneratedByAgentId);
+                command.Parameters.AddWithValue("$name", candidate.Name);
+                command.Parameters.AddWithValue("$layer", candidate.Layer);
+                command.Parameters.AddWithValue("$agent_type", candidate.AgentType);
+                command.Parameters.AddWithValue("$description", candidate.Description);
+                command.Parameters.AddWithValue("$suggested_tools_json", JsonSerializer.Serialize(candidate.SuggestedTools, TinadecJson.Options));
+                command.Parameters.AddWithValue("$evaluation_notes_json", JsonSerializer.Serialize(candidate.EvaluationNotes, TinadecJson.Options));
+                command.Parameters.AddWithValue("$created_at", now.ToString("O"));
+            });
+        }
+    }
+
+    private InstalledExtensionDto SaveInstalledExtension(string? catalogId, ExtensionDescriptor descriptor, bool enabled, string status, string statusMessage)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var id = $"ext_{ExtensionCatalog.NormalizeId(descriptor.ExtensionId)}";
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                insert into installed_extensions (
+                    id,
+                    catalog_id,
+                    extension_id,
+                    kind,
+                    version,
+                    publisher,
+                    display_name,
+                    description,
+                    source_kind,
+                    source_location,
+                    capabilities_json,
+                    permissions_json,
+                    manifest_json,
+                    config_json,
+                    enabled,
+                    status,
+                    status_message,
+                    installed_at,
+                    updated_at
+                )
+                values (
+                    $id,
+                    $catalog_id,
+                    $extension_id,
+                    $kind,
+                    $version,
+                    $publisher,
+                    $display_name,
+                    $description,
+                    $source_kind,
+                    $source_location,
+                    $capabilities_json,
+                    $permissions_json,
+                    $manifest_json,
+                    null,
+                    $enabled,
+                    $status,
+                    $status_message,
+                    $installed_at,
+                    $updated_at
+                )
+                on conflict(id) do update set
+                    catalog_id = excluded.catalog_id,
+                    version = excluded.version,
+                    publisher = excluded.publisher,
+                    display_name = excluded.display_name,
+                    description = excluded.description,
+                    source_kind = excluded.source_kind,
+                    source_location = excluded.source_location,
+                    capabilities_json = excluded.capabilities_json,
+                    permissions_json = excluded.permissions_json,
+                    manifest_json = excluded.manifest_json,
+                    enabled = excluded.enabled,
+                    status = excluded.status,
+                    status_message = excluded.status_message,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", id);
+                command.Parameters.AddWithValue("$catalog_id", (object?)catalogId ?? DBNull.Value);
+                command.Parameters.AddWithValue("$extension_id", descriptor.ExtensionId);
+                command.Parameters.AddWithValue("$kind", descriptor.Kind);
+                command.Parameters.AddWithValue("$version", descriptor.Version);
+                command.Parameters.AddWithValue("$publisher", descriptor.Publisher);
+                command.Parameters.AddWithValue("$display_name", descriptor.DisplayName);
+                command.Parameters.AddWithValue("$description", descriptor.Description);
+                command.Parameters.AddWithValue("$source_kind", descriptor.SourceKind);
+                command.Parameters.AddWithValue("$source_location", descriptor.SourceLocation);
+                command.Parameters.AddWithValue("$capabilities_json", JsonSerializer.Serialize(descriptor.Capabilities, TinadecJson.Options));
+                command.Parameters.AddWithValue("$permissions_json", JsonSerializer.Serialize(descriptor.Permissions, TinadecJson.Options));
+                command.Parameters.AddWithValue("$manifest_json", descriptor.ManifestJson);
+                command.Parameters.AddWithValue("$enabled", enabled ? 1 : 0);
+                command.Parameters.AddWithValue("$status", status);
+                command.Parameters.AddWithValue("$status_message", statusMessage);
+                command.Parameters.AddWithValue("$installed_at", now.ToString("O"));
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        return GetInstalledExtension(id)
+            ?? throw new InvalidOperationException("Installed extension was not found.");
+    }
+
+    private InstalledExtensionDto? GetInstalledExtension(string installedExtensionId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            select id, catalog_id, extension_id, kind, version, publisher, display_name, description, source_kind,
+                   source_location, capabilities_json, permissions_json, enabled, status, status_message, installed_at, updated_at
+            from installed_extensions
+            where id = $id
+            """;
+        command.Parameters.AddWithValue("$id", installedExtensionId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadInstalledExtension(reader) : null;
+    }
+
+    private string? GetApprovalStatus(string approvalId) => GetApproval(approvalId)?.Status;
+
+    private ApprovalDto? GetApproval(string approvalId)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "select id, session_id, kind, summary, command, cwd, status, created_at, decided_at from approvals where id = $id";
+        command.Parameters.AddWithValue("$id", approvalId);
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadApproval(reader) : null;
+    }
+
+    private static void ValidateExtensionDescriptor(ExtensionDescriptor descriptor)
+    {
+        if (string.IsNullOrWhiteSpace(descriptor.ExtensionId))
+        {
+            throw new InvalidOperationException("Extension id is required.");
+        }
+
+        if (descriptor.ExtensionId.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch is not '-' and not '_'))
+        {
+            throw new InvalidOperationException("Extension id may only contain ASCII letters, numbers, '-' and '_'.");
+        }
+
+        if (descriptor.SourceLocation.Contains("..", StringComparison.Ordinal) ||
+            descriptor.SourceLocation.Contains('\r', StringComparison.Ordinal) ||
+            descriptor.SourceLocation.Contains('\n', StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Extension source location is not safe.");
+        }
+    }
+
+    private static void UpsertRuntimeCache(SqliteConnection connection, InstalledExtensionDto extension, DateTimeOffset now)
+    {
+        if (extension.Kind == "mcp-server")
+        {
+            var serverId = $"mcp_{extension.Id}";
+            Execute(connection, """
+                insert into mcp_servers (id, extension_id, name, transport, status, tools_json, updated_at)
+                values ($id, $extension_id, $name, $transport, 'ready', $tools_json, $updated_at)
+                on conflict(id) do update set
+                    name = excluded.name,
+                    transport = excluded.transport,
+                    status = excluded.status,
+                    tools_json = excluded.tools_json,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", serverId);
+                command.Parameters.AddWithValue("$extension_id", extension.Id);
+                command.Parameters.AddWithValue("$name", extension.DisplayName);
+                command.Parameters.AddWithValue("$transport", extension.Capabilities.Contains("stdio") ? "stdio" : "http");
+                command.Parameters.AddWithValue("$tools_json", JsonSerializer.Serialize(new[] { $"{extension.ExtensionId}.tool" }, TinadecJson.Options));
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+
+        if (extension.Kind == "acp-adapter")
+        {
+            var adapterId = $"acp_{extension.Id}";
+            Execute(connection, """
+                insert into acp_adapters (id, extension_id, name, command, status, status_message, capabilities_json, updated_at)
+                values ($id, $extension_id, $name, $command, 'ready', $status_message, $capabilities_json, $updated_at)
+                on conflict(id) do update set
+                    name = excluded.name,
+                    command = excluded.command,
+                    status = excluded.status,
+                    status_message = excluded.status_message,
+                    capabilities_json = excluded.capabilities_json,
+                    updated_at = excluded.updated_at
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$id", adapterId);
+                command.Parameters.AddWithValue("$extension_id", extension.Id);
+                command.Parameters.AddWithValue("$name", extension.DisplayName);
+                command.Parameters.AddWithValue("$command", "agent acp");
+                command.Parameters.AddWithValue("$status_message", "Adapter metadata is enabled. Runtime process spawning remains approval-gated.");
+                command.Parameters.AddWithValue("$capabilities_json", JsonSerializer.Serialize(extension.Capabilities, TinadecJson.Options));
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+            });
+        }
+    }
+
+    private static void RemoveRuntimeCache(SqliteConnection connection, string installedExtensionId)
+    {
+        Execute(connection, "delete from mcp_servers where extension_id = $extension_id", command => command.Parameters.AddWithValue("$extension_id", installedExtensionId));
+        Execute(connection, "delete from mcp_capabilities_cache where server_id = $server_id", command => command.Parameters.AddWithValue("$server_id", $"mcp_{installedExtensionId}"));
+        Execute(connection, "delete from acp_adapters where extension_id = $extension_id", command => command.Parameters.AddWithValue("$extension_id", installedExtensionId));
+    }
+
+    private static string ResolveDatabasePath(IConfiguration configuration)
+    {
+        var configured = configuration["Tinadec:DatabasePath"] ?? Environment.GetEnvironmentVariable("TINADEC_DB");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            root = AppContext.BaseDirectory;
+        }
+
+        return Path.Combine(root, "TinadecCode", "tinadec.db");
+    }
+
+    private SqliteConnection OpenConnection()
+    {
+        var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        return connection;
+    }
+
+    private static long NextSeq(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "select coalesce(max(seq), 0) + 1 from events";
+        return (long)command.ExecuteScalar()!;
+    }
+
+    private static void Execute(SqliteConnection connection, string sql, Action<SqliteCommand>? configure = null)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        configure?.Invoke(command);
+        command.ExecuteNonQuery();
+    }
+
+    private static DateTimeOffset ParseTime(string value)
+    {
+        return DateTimeOffset.Parse(value, null, System.Globalization.DateTimeStyles.RoundtripKind);
+    }
+
+    private static SessionDto ReadSession(SqliteDataReader reader)
+    {
+        return new SessionDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            ParseTime(reader.GetString(4)),
+            ParseTime(reader.GetString(5)));
+    }
+
+    private static ApprovalDto ReadApproval(SqliteDataReader reader)
+    {
+        return new ApprovalDto(
+            reader.GetString(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetString(5),
+            reader.GetString(6),
+            ParseTime(reader.GetString(7)),
+            reader.IsDBNull(8) ? null : ParseTime(reader.GetString(8)));
+    }
+
+    private static EventEnvelope ReadEvent(SqliteDataReader reader)
+    {
+        var capabilities = JsonSerializer.Deserialize<string[]>(reader.GetString(7), TinadecJson.Options) ?? [];
+        var payload = reader.IsDBNull(8) ? null : JsonNode.Parse(reader.GetString(8)) as JsonObject;
+        var error = reader.IsDBNull(9)
+            ? null
+            : JsonSerializer.Deserialize<TinadecError>(reader.GetString(9), TinadecJson.Options);
+
+        return new EventEnvelope(
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.GetString(5),
+            reader.GetInt64(0),
+            ParseTime(reader.GetString(6)),
+            capabilities,
+            payload,
+            error);
+    }
+
+    private static StoredModelProviderInstance ReadModelProvider(SqliteDataReader reader)
+    {
+        var capabilities = JsonSerializer.Deserialize<string[]>(reader.GetString(11), TinadecJson.Options) ?? [];
+        return new StoredModelProviderInstance(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetString(5),
+            reader.IsDBNull(6) ? null : reader.GetString(6),
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            reader.IsDBNull(8) ? null : reader.GetString(8),
+            reader.IsDBNull(9) ? null : reader.GetString(9),
+            reader.IsDBNull(10) ? null : reader.GetString(10),
+            capabilities,
+            reader.GetInt32(12) == 1,
+            ParseTime(reader.GetString(13)),
+            ParseTime(reader.GetString(14)));
+    }
+
+    private static ModelRouteDto ReadModelRoute(SqliteDataReader reader)
+    {
+        return new ModelRouteDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            ParseTime(reader.GetString(3)));
+    }
+
+    private static ExtensionSourceDto ReadExtensionSource(SqliteDataReader reader)
+    {
+        return new ExtensionSourceDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetInt32(4) == 1,
+            reader.IsDBNull(5) ? null : ParseTime(reader.GetString(5)),
+            ParseTime(reader.GetString(6)));
+    }
+
+    private static MarketCatalogItemDto ReadMarketCatalogItem(SqliteDataReader reader)
+    {
+        var capabilities = JsonSerializer.Deserialize<string[]>(reader.GetString(10), TinadecJson.Options) ?? [];
+        var permissions = JsonSerializer.Deserialize<string[]>(reader.GetString(11), TinadecJson.Options) ?? [];
+        var installedId = reader.IsDBNull(12) ? null : reader.GetString(12);
+        return new MarketCatalogItemDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetString(7),
+            reader.GetString(8),
+            reader.GetString(9),
+            capabilities,
+            permissions,
+            installedId is null ? "available" : "installed",
+            installedId);
+    }
+
+    private static InstalledExtensionDto ReadInstalledExtension(SqliteDataReader reader)
+    {
+        var capabilities = JsonSerializer.Deserialize<string[]>(reader.GetString(10), TinadecJson.Options) ?? [];
+        var permissions = JsonSerializer.Deserialize<string[]>(reader.GetString(11), TinadecJson.Options) ?? [];
+        return new InstalledExtensionDto(
+            reader.GetString(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetString(7),
+            reader.GetString(8),
+            reader.GetString(9),
+            capabilities,
+            permissions,
+            reader.GetInt32(12) == 1,
+            reader.GetString(13),
+            reader.GetString(14),
+            ParseTime(reader.GetString(15)),
+            ParseTime(reader.GetString(16)));
+    }
+
+    private static McpServerDto ReadMcpServer(SqliteDataReader reader)
+    {
+        var tools = JsonSerializer.Deserialize<string[]>(reader.GetString(5), TinadecJson.Options) ?? [];
+        return new McpServerDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            tools,
+            ParseTime(reader.GetString(6)));
+    }
+
+    private static AcpAdapterDto ReadAcpAdapter(SqliteDataReader reader)
+    {
+        var capabilities = JsonSerializer.Deserialize<string[]>(reader.GetString(6), TinadecJson.Options) ?? [];
+        return new AcpAdapterDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            capabilities,
+            ParseTime(reader.GetString(7)));
+    }
+
+    private static AgentProfileDto ReadAgentProfile(SqliteDataReader reader)
+    {
+        var allowedTools = JsonSerializer.Deserialize<string[]>(reader.GetString(7), TinadecJson.Options) ?? [];
+        var capabilities = JsonSerializer.Deserialize<string[]>(reader.GetString(8), TinadecJson.Options) ?? [];
+        return new AgentProfileDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            allowedTools,
+            capabilities,
+            reader.GetInt32(9) == 1,
+            reader.GetInt32(10) == 1,
+            ParseTime(reader.GetString(11)));
+    }
+
+    private static AgentCandidateDto ReadAgentCandidate(SqliteDataReader reader)
+    {
+        var suggestedTools = JsonSerializer.Deserialize<string[]>(reader.GetString(6), TinadecJson.Options) ?? [];
+        var evaluationNotes = JsonSerializer.Deserialize<string[]>(reader.GetString(7), TinadecJson.Options) ?? [];
+        return new AgentCandidateDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            suggestedTools,
+            evaluationNotes,
+            reader.GetString(8),
+            ParseTime(reader.GetString(9)));
+    }
+
+    private static OrchestrationRunDto ReadOrchestrationRun(SqliteDataReader reader)
+    {
+        return new OrchestrationRunDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            ParseTime(reader.GetString(5)),
+            ParseTime(reader.GetString(6)));
+    }
+
+    private static TaskGraphDto ReadTaskGraph(SqliteDataReader reader)
+    {
+        return new TaskGraphDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            ParseTime(reader.GetString(5)),
+            ParseTime(reader.GetString(6)));
+    }
+
+    private static TaskNodeDto ReadTaskNode(SqliteDataReader reader)
+    {
+        return new TaskNodeDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetInt32(7),
+            reader.GetString(8),
+            ReadStringArrayJson(reader.GetString(9)),
+            ReadStringArrayJson(reader.GetString(10)),
+            ReadStringArrayJson(reader.GetString(11)),
+            ParseTime(reader.GetString(12)),
+            ParseTime(reader.GetString(13)));
+    }
+
+    private static AgentAssignmentDto ReadAgentAssignment(SqliteDataReader reader)
+    {
+        return new AgentAssignmentDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetString(7),
+            reader.GetString(8),
+            ReadStringArrayJson(reader.GetString(9)),
+            reader.GetString(10),
+            ParseTime(reader.GetString(11)));
+    }
+
+    private static StepResultDto ReadStepResult(SqliteDataReader reader)
+    {
+        return new StepResultDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            ReadStringArrayJson(reader.GetString(6)),
+            ParseTime(reader.GetString(7)));
+    }
+
+    private static ContextPackDto ReadContextPack(SqliteDataReader reader)
+    {
+        return new ContextPackDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetInt32(5),
+            reader.GetDouble(6),
+            ReadStringArrayJson(reader.GetString(7)),
+            ParseTime(reader.GetString(8)));
+    }
+
+    private static SupervisionFindingDto ReadSupervisionFinding(SqliteDataReader reader)
+    {
+        return new SupervisionFindingDto(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetString(7),
+            ParseTime(reader.GetString(8)));
+    }
+
+    private static IReadOnlyList<string> ReadStringArrayJson(string value)
+    {
+        return JsonSerializer.Deserialize<string[]>(value, TinadecJson.Options) ?? [];
+    }
+
+    private static string NormalizeProviderInstanceId(string value)
+    {
+        var normalized = new string(value.Trim().ToLowerInvariant().Select(ch =>
+            char.IsAsciiLetterOrDigit(ch) || ch is '_' or '-' ? ch : '_').ToArray());
+        normalized = normalized.Trim('_', '-');
+        return string.IsNullOrWhiteSpace(normalized) ? $"provider_{Guid.NewGuid():N}" : normalized;
+    }
+
+    private static string NormalizeRoutePurpose(string value)
+    {
+        return NormalizePlain(value, "chat").ToLowerInvariant();
+    }
+
+    private static string NormalizePlain(string? value, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? NormalizeOptionalUrl(string? value)
+    {
+        var normalized = NormalizeOptional(value);
+        return normalized?.TrimEnd('/');
+    }
+
+    private static string NormalizeExtensionSourceKind(string? value)
+    {
+        var normalized = ExtensionCatalog.NormalizeId(value);
+        return normalized is "local-directory" or "local-archive" or "github" or "git" or "https-archive" or "marketplace-url" or "mcpb" or "dxt" or "builtin"
+            ? normalized
+            : "local-directory";
+    }
+
+    private static string NormalizeConnectionKind(string? value, string driver)
+    {
+        var normalized = NormalizePlain(value, InferConnectionKind(driver)).ToLowerInvariant();
+        return normalized is "api-key" or "cli" or "local-server" ? normalized : InferConnectionKind(driver);
+    }
+
+    private static string InferConnectionKind(string driver)
+    {
+        var normalized = driver.ToLowerInvariant();
+        if (normalized.Contains("cli", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("cursor", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("opencode", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cli";
+        }
+
+        if (normalized is "ollama" or "vllm" or "sglang")
+        {
+            return "local-server";
+        }
+
+        return "api-key";
+    }
+
+    private static string[] InferCapabilities(string driver, string connectionKind)
+    {
+        if (connectionKind.Equals("cli", StringComparison.OrdinalIgnoreCase))
+        {
+            return driver.Contains("cursor", StringComparison.OrdinalIgnoreCase)
+                ? ["agent", "cli", "acp"]
+                : ["agent", "cli", "workspace"];
+        }
+
+        if (connectionKind.Equals("local-server", StringComparison.OrdinalIgnoreCase))
+        {
+            return ["chat", "local", "no-api-key"];
+        }
+
+        return ["chat", "streaming", "tool-calls"];
+    }
+}

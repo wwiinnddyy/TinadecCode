@@ -1,0 +1,15 @@
+bin/
+obj/
+node_modules/
+dist/
+dist-electron/
+.vite/
+.playwright-cli/
+*.db
+*.db-shm
+*.db-wal
+TestResults/
+coverage/
+output/
+*.user
+*.suo

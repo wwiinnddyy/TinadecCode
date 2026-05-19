@@ -1,0 +1,21 @@
+{
+  "name": "tinadec-code",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n core,code,desktop -c blue,magenta,green \"npm run dev:core\" \"npm run dev:code\" \"npm run dev:desktop\"",
+    "dev:core": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue; dotnet run --project src/Tinadec.AgentCore/Tinadec.AgentCore.csproj --urls http://127.0.0.1:48731\"",
+    "dev:code": "npm run dev -w @tinadec/code",
+    "dev:desktop": "npm run dev -w @tinadec/desktop",
+    "build": "npm run build --workspaces --if-present && powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue; dotnet build TinadecCode.slnx --no-restore\"",
+    "test": "npm run test --workspaces --if-present && powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue; dotnet test TinadecCode.slnx --no-build\"",
+    "restore:dotnet": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue; dotnet restore TinadecCode.slnx\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
