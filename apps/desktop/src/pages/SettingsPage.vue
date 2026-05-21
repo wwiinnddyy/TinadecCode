@@ -83,6 +83,18 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const { theme, setTheme, accentColor, setAccentColor, accentColors } = useTheme()
 
+function minimizeWindow() {
+  window.tinadec?.minimizeWindow?.()
+}
+
+function maximizeWindow() {
+  window.tinadec?.maximizeWindow?.()
+}
+
+function closeWindow() {
+  window.tinadec?.closeWindow?.()
+}
+
 const activeSection = ref<SettingsSection>('model')
 const providers = ref<ModelProviderInstanceDto[]>([])
 const routes = ref<ModelRouteDto[]>([])
@@ -445,15 +457,26 @@ loadAgentCenter()
 </script>
 
 <template>
-  <div>
-    <div class="settings-back">
-      <UiButton variant="ghost" size="icon" :title="t('settings.back')" @click="router.push('/')">
-        <ArrowLeft :size="16" />
+  <div class="settings-page">
+    <div class="settings-window-controls">
+      <UiButton variant="ghost" size="icon" class="window-btn minimize" :title="t('app.minimize')" @click="minimizeWindow">
+        <Minus :size="14" />
       </UiButton>
-      <span>{{ t('settings.title') }}</span>
+      <UiButton variant="ghost" size="icon" class="window-btn maximize" :title="t('app.maximize')" @click="maximizeWindow">
+        <Square :size="12" />
+      </UiButton>
+      <UiButton variant="ghost" size="icon" class="window-btn close" :title="t('app.close')" @click="closeWindow">
+        <X :size="14" />
+      </UiButton>
     </div>
     <div class="settings-shell">
       <nav class="settings-nav">
+        <div class="settings-nav-header">
+          <UiButton variant="ghost" size="icon" :title="t('settings.back')" @click="router.push('/')">
+            <ArrowLeft :size="16" />
+          </UiButton>
+          <span>{{ t('settings.title') }}</span>
+        </div>
         <UiButton
           v-for="item in navItems"
           :key="item.key"

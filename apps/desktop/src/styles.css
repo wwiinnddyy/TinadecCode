@@ -82,6 +82,33 @@
   }
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Legacy CSS variables for backward compatibility */
 :root[data-theme="dark"] {
   --bg-primary: #0d1117;
@@ -136,6 +163,9 @@
 
   --shadow-panel: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-focus: 0 0 0 3px rgba(88, 166, 255, 0.3);
+
+  --scrollbar-thumb: rgba(139, 148, 158, 0.3);
+  --scrollbar-thumb-hover: rgba(139, 148, 158, 0.5);
 }
 
 :root[data-theme="light"] {
@@ -191,6 +221,9 @@
 
   --shadow-panel: 0 8px 24px rgba(26, 37, 38, 0.08);
   --shadow-focus: 0 0 0 3px rgba(46, 125, 118, 0.14);
+
+  --scrollbar-thumb: rgba(31, 35, 40, 0.2);
+  --scrollbar-thumb-hover: rgba(31, 35, 40, 0.35);
 }
 
 * {
@@ -3046,18 +3079,62 @@ label {
   line-height: 1.35;
 }
 
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.settings-window-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px;
+  height: 40px;
+  -webkit-app-region: drag;
+}
+
+.settings-window-controls button {
+  -webkit-app-region: no-drag;
+}
+
 .settings-shell {
   display: grid;
   grid-template-columns: 220px 1fr;
   gap: 1px;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   background: var(--border-default);
+  border-radius: 0 12px 0 0;
+  overflow: hidden;
 }
 
 .settings-nav {
   padding: 20px 12px;
   background: var(--bg-secondary);
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  border-radius: 0 12px 0 0;
+  overflow: auto;
+}
+
+.settings-nav-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 16px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.settings-nav-header span {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
 }
 
 .settings-nav-item {
@@ -3088,6 +3165,7 @@ label {
 .settings-content {
   padding: 24px 32px;
   overflow: auto;
+  background: var(--bg-primary);
 }
 
 .settings-content h2 {
@@ -3098,26 +3176,6 @@ label {
 
 .settings-content h3 {
   margin: 20px 0 10px;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.settings-back {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-secondary);
-  -webkit-app-region: drag;
-}
-
-.settings-back button {
-  -webkit-app-region: no-drag;
-}
-
-.settings-back span {
-  font-weight: 700;
   font-size: 14px;
   color: var(--text-primary);
 }
