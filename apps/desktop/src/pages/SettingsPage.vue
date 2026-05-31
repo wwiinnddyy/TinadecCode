@@ -52,10 +52,11 @@ import {
   type ProviderTemplate,
   type ProviderCategory
 } from '../providerTemplates'
+import { codeSuiteTools, languageSupportFromTools, projectTemplatesFromResult, type ProjectTemplateSummary } from '../toolCatalog'
 import { UiButton, UiInput, UiCard, UiBadge, UiLabel, UiSwitch } from '@/components/ui'
 import AgentTopologyCanvas from '@/components/AgentTopologyCanvas.vue'
 
-type SettingsSection = 'model' | 'agents' | 'appearance' | 'language' | 'apiDocs' | 'about'
+type SettingsSection = 'model' | 'agents' | 'tools' | 'appearance' | 'language' | 'apiDocs' | 'about'
 
 interface ProviderForm {
   id: string
@@ -103,6 +104,7 @@ const agentModes = ref<AgentModeDto[]>([])
 const agents = ref<AgentProfileDto[]>([])
 const agentCandidates = ref<AgentCandidateDto[]>([])
 const availableTools = ref<ToolDescriptorDto[]>([])
+const projectTemplates = ref<ProjectTemplateSummary[]>([])
 const selectedProviderId = ref('')
 const selectedAgentId = ref('')
 const configuringAgentId = ref('')
@@ -139,6 +141,7 @@ const providerForm = reactive<ProviderForm>({
 const navItems = computed(() => [
   { key: 'model' as const, icon: KeyRound, label: t('settings.model') },
   { key: 'agents' as const, icon: Workflow, label: t('settings.agents') },
+  { key: 'tools' as const, icon: Terminal, label: t('settings.toolLayer') },
   { key: 'appearance' as const, icon: Palette, label: t('settings.appearance') },
   { key: 'language' as const, icon: Globe, label: t('settings.language') },
   { key: 'apiDocs' as const, icon: FileText, label: t('settings.apiDocs') },
@@ -182,6 +185,9 @@ const configuringAgent = computed(() =>
 const planningAgents = computed(() => agents.value.filter((agent) => agent.layer === 'planning'))
 const executionAgents = computed(() => agents.value.filter((agent) => agent.layer === 'execution'))
 const configuredAgentMode = computed(() => agentModes.value.find((mode) => mode.id === configuringAgent.value?.mode) ?? null)
+const codeSuiteToolList = computed(() => codeSuiteTools(availableTools.value))
+const codexPrimitiveTools = computed(() => availableTools.value.filter((tool) => tool.source === 'codex-rust'))
+const supportedLanguages = computed(() => languageSupportFromTools(availableTools.value))
 
 function brandColor(driver: string) {
   return findTemplate(driver)?.brand_color ?? '#58a6ff'
@@ -324,6 +330,9 @@ async function loadAgentCenter() {
     agentCandidates.value = candidates
     // Tools list is non-critical — load independently so a missing Core doesn't block agent display
     api.listTools().then((tools) => { availableTools.value = tools }).catch(() => { availableTools.value = [] })
+    api.executeCodeTool('project_templates')
+      .then((result) => { projectTemplates.value = projectTemplatesFromResult(result) })
+      .catch(() => { projectTemplates.value = [] })
     if (!agentList.some((agent) => agent.id === selectedAgentId.value)) {
       selectedAgentId.value = agentList[0]?.id ?? ''
     }
@@ -1072,6 +1081,76 @@ loadAgentCenter()
                 </ul>
               </template>
             </UiCard>
+          </div>
+        </template>
+
+        <template v-if="activeSection === 'tools'">
+          <div class="model-center-heading">
+            <div>
+              <h2>{{ t('settings.toolLayerTitle') }}</h2>
+              <p>{{ t('settings.toolLayerSubtitle') }}</p>
+            </div>
+            <UiButton variant="outline" size="sm" :disabled="loading" @click="loadAgentCenter">
+              <Server :size="14" />
+              <span>{{ t('settings.refresh') }}</span>
+            </UiButton>
+          </div>
+
+          <div class="model-section-header">
+            <h3>{{ t('settings.codeToolSuite') }}</h3>
+            <UiBadge variant="secondary">{{ codeSuiteToolList.length }}</UiBadge>
+          </div>
+
+          <div v-if="supportedLanguages.length > 0" class="model-capability-row">
+            <span v-for="language in supportedLanguages" :key="language">{{ language }}</span>
+          </div>
+
+          <div class="model-section-header">
+            <h3>{{ t('settings.projectTemplates') }}</h3>
+            <UiBadge variant="outline">{{ projectTemplates.length }}</UiBadge>
+          </div>
+
+          <div class="agent-tool-grid">
+            <button
+              v-for="template in projectTemplates"
+              :key="template.id"
+              class="agent-tool-chip"
+            >
+              <span class="agent-tool-name">{{ template.name }}</span>
+              <span class="agent-tool-risk">{{ template.language }} · {{ template.package_manager }}</span>
+            </button>
+          </div>
+
+          <div class="agent-tool-grid">
+            <button
+              v-for="tool in codeSuiteToolList"
+              :key="tool.id"
+              class="agent-tool-chip active"
+              :class="{ risky: tool.requires_approval }"
+            >
+              <span class="agent-tool-name">{{ tool.display_name }}</span>
+              <span class="agent-tool-risk">
+                {{ tool.requires_approval ? t('settings.approvalRequired') : t('settings.readOnlyTool') }} · {{ tool.risk }}
+              </span>
+            </button>
+          </div>
+          <p v-if="codeSuiteToolList.length === 0" class="quiet">{{ t('settings.noTools') }}</p>
+
+          <div class="model-section-header">
+            <h3>{{ t('settings.codexPrimitiveTools') }}</h3>
+            <UiBadge variant="outline">{{ codexPrimitiveTools.length }}</UiBadge>
+          </div>
+
+          <div class="agent-tool-grid">
+            <button
+              v-for="tool in codexPrimitiveTools"
+              :key="tool.id"
+              class="agent-tool-chip"
+              :class="{ risky: tool.requires_approval }"
+            >
+              <span class="agent-tool-name">{{ tool.display_name }}</span>
+              <span class="agent-tool-risk">{{ tool.source }} · {{ tool.risk }}</span>
+            </button>
           </div>
         </template>
 

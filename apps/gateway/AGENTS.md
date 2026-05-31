@@ -15,6 +15,9 @@ Elysia TypeScript BFF/API layer. It proxies Core HTTP/SSE/debug routes and hosts
 ## CONVENTIONS
 - Package is ESM (`"type": "module"`); TypeScript uses `NodeNext`.
 - Keep Gateway thin. Core owns state, approvals, model routes, sessions, events, and persistence.
+- `/api/v1/code/tools` publishes Tool-layer Code-suite metadata with snake_case public DTO fields. `src/codeTools.ts` keeps internal spec fields camelCase and maps them at the API boundary.
+- Code-suite tools include project templates, runtime probe, bash-like environment, debugging, editor, Git worktree manager, and native-backed Codex primitives.
+- `project_templates` is read-only list/preview. `project_template_scaffold` writes files and must remain approval-gated; direct Gateway execution treats `approval_id` as the Core-supplied approval proof.
 - Manual CORS exists because `@elysiajs/cors` returned bad preflight behavior with the Node adapter.
 - Use `setStatus(set, result.status)` when forwarding Core response status.
 - OpenAPI docs are served at `/docs`.
@@ -22,6 +25,7 @@ Elysia TypeScript BFF/API layer. It proxies Core HTTP/SSE/debug routes and hosts
 
 ## ANTI-PATTERNS
 - Do not add durable state here.
+- Do not let Code tool execution bypass Core approval semantics; risky tools must remain blocked without approval context.
 - Do not bypass Core contracts when forwarding `/api/v1/*` shapes.
 - Do not remove local dev/Electron allowed origins without checking Desktop startup.
 - Do not assume dependency diagnostics are valid until `npm install` has run; missing deps cause many false LSP errors.

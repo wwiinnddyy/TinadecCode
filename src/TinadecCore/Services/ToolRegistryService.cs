@@ -86,12 +86,100 @@ public sealed class CodexCapabilityProvider : ICapabilityProvider
     public IReadOnlyList<ToolDescriptorDto> ListCapabilities() => CodexTools;
 }
 
+public sealed class CodeCapabilityProvider : ICapabilityProvider
+{
+    public string Id => "code";
+
+    private static readonly string[] RuntimeCapabilities =
+    [
+        "runtime.nodejs",
+        "runtime.bun",
+        "runtime.golang",
+        "runtime.flutter",
+        "runtime.python",
+        "runtime.rust",
+        "runtime.zig",
+        "runtime.nim",
+        "runtime.csharp",
+        "runtime.java"
+    ];
+
+    private static readonly IReadOnlyList<ToolDescriptorDto> CodeTools =
+    [
+        new(
+            "project_templates",
+            "Project Templates",
+            "programming",
+            "code",
+            "read-only",
+            false,
+            "/api/v1/code/tools/project_templates/execute",
+            ["project.template", "project.preview", "tool-layer.code-suite", .. RuntimeCapabilities]),
+        new(
+            "project_template_scaffold",
+            "Project Template Scaffold",
+            "programming",
+            "code",
+            "workspace-write",
+            true,
+            "/api/v1/code/tools/project_template_scaffold/execute",
+            ["project.scaffold", "file.write.approved", "tool-layer.code-suite", .. RuntimeCapabilities]),
+        new(
+            "language_runtime_probe",
+            "Language Runtime Probe",
+            "programming",
+            "code",
+            "read-only",
+            false,
+            "/api/v1/code/tools/language_runtime_probe/execute",
+            ["runtime.probe", "tool-layer.code-suite", .. RuntimeCapabilities]),
+        new(
+            "bash_environment",
+            "Bash-like Environment",
+            "programming",
+            "code",
+            "shell",
+            true,
+            "/api/v1/code/tools/bash_environment/execute",
+            ["shell.approved", "process.exec", "env.vars", "tool-layer.code-suite"]),
+        new(
+            "debug_session",
+            "Built-in Debug Session",
+            "programming",
+            "code",
+            "shell",
+            true,
+            "/api/v1/code/tools/debug_session/execute",
+            ["debug.run", "debug.breakpoint", "trace.capture", "tool-layer.code-suite"]),
+        new(
+            "code_editor",
+            "Built-in Code Editor",
+            "programming",
+            "code",
+            "workspace-write",
+            true,
+            "/api/v1/code/tools/code_editor/execute",
+            ["editor.open", "editor.diff", "file.write.approved", "tool-layer.code-suite"]),
+        new(
+            "git_worktree_manager",
+            "Git Worktree Manager",
+            "programming",
+            "code",
+            "git-write",
+            true,
+            "/api/v1/code/tools/git_worktree_manager/execute",
+            ["git.worktree", "git.branch", "workspace.isolation", "tool-layer.code-suite"])
+    ];
+
+    public IReadOnlyList<ToolDescriptorDto> ListCapabilities() => CodeTools;
+}
+
 public sealed class ToolRegistryService : IToolRegistry
 {
     private readonly IReadOnlyList<ICapabilityProvider> _providers;
 
     public ToolRegistryService()
-        : this([new CodexCapabilityProvider()])
+        : this([new CodexCapabilityProvider(), new CodeCapabilityProvider()])
     {
     }
 

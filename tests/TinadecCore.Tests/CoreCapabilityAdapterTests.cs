@@ -50,6 +50,21 @@ public sealed class CoreCapabilityAdapterTests
         Assert.Equal(request.RunId, client.Request?.RunId);
     }
 
+    [Fact]
+    public async Task CodeInvocationAdapterAcceptsCodeSuiteTools()
+    {
+        var client = new RecordingCodeToolClient();
+        var adapter = new CodexToolInvocationAdapter(client);
+        var tool = new CodeCapabilityProvider().ListCapabilities().Single(item => item.Id == "project_template_scaffold");
+        var request = new CodeToolExecuteRequest("sess_1", "run_1", "node_1", null, "D:\\repo", new Dictionary<string, object?>());
+
+        var result = await adapter.InvokeAsync(tool, request);
+
+        Assert.True(adapter.CanInvoke(tool));
+        Assert.Equal("native", result.Status);
+        Assert.Equal("project_template_scaffold", client.ToolId);
+    }
+
     private sealed class RecordingCodeToolClient : ICodeToolClient
     {
         public string? ToolId { get; private set; }

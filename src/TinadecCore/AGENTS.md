@@ -22,6 +22,7 @@ src/TinadecCore/
 | Change persistence | `Storage/CoreStore.cs` | Largest hotspot; pair with CoreStore tests. |
 | Change DTO/request | `Contracts/Models`, `Contracts/Events` | Mirror Desktop `api.ts` after Core changes. |
 | Tool policy | `Services/ToolRegistryService.cs`, `CapabilityPolicyService.cs` | Approval-first behavior. |
+| Code-suite registration | `Services/ToolRegistryService.cs` | `CodeCapabilityProvider` registers Tool-layer Code capabilities; keep Code modeled as tools, not a peer orchestrator. |
 | Orchestration | `Services/OrchestratorService.cs`, `AgentWorkflowRuntime.cs` | Runs, task graph, read-only tools. |
 | Model providers | `Services/ModelProviderCatalog.cs`, `OpenAiCompatibleClient.cs` | Provider-instance model center. |
 | Debug/tracing | `Tracing/*`, `Debug/*` | Agent Debug Studio backend. |
@@ -32,6 +33,8 @@ src/TinadecCore/
 - HTTP JSON uses `JsonNamingPolicy.SnakeCaseLower`; keep event/DTO casing stable.
 - `CoreStore` is SQLite-first and seeds built-in agents/providers/routes/extensions.
 - Tool execution must preserve approval-gated posture.
+- Tool layer capabilities are registered in Core. `CodeCapabilityProvider` is the built-in Code suite for project templates, runtime probes, bash-like env, debugging, editor, and Git worktree management.
+- Keep `project_templates` read-only and `project_template_scaffold` approval-gated as `workspace-write`; scaffolding must flow through Core approval before Gateway writes files.
 - `SecretProtector` uses DPAPI on Windows; non-Windows fallback is for development only.
 - Trace propagation crosses to Gateway/code tools; preserve `traceparent` behavior in client changes.
 

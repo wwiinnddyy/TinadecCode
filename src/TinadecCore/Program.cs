@@ -32,6 +32,7 @@ builder.Services.AddSingleton<EventHub>();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddHttpClient<OpenAiCompatibleClient>();
 builder.Services.AddSingleton<ICapabilityProvider, CodexCapabilityProvider>();
+builder.Services.AddSingleton<ICapabilityProvider, CodeCapabilityProvider>();
 builder.Services.AddSingleton<IRuntimeKernelAdapter, CodexRuntimeKernelAdapter>();
 builder.Services.AddSingleton<ICapabilityPolicy, CapabilityPolicyService>();
 builder.Services.AddSingleton<IToolRegistry, ToolRegistryService>();

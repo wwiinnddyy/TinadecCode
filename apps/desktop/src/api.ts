@@ -342,6 +342,25 @@ export interface ToolDescriptorDto {
   capabilities: string[];
 }
 
+export interface CodeToolExecuteResultDto {
+  tool_id: string;
+  status: string;
+  summary: string;
+  evidence: string[];
+  data: Record<string, unknown>;
+  requires_approval: boolean;
+  approval_summary?: string | null;
+}
+
+export interface CodeToolExecuteRequestDto {
+  session_id?: string | null;
+  run_id?: string | null;
+  task_node_id?: string | null;
+  approval_id?: string | null;
+  cwd?: string | null;
+  arguments?: Record<string, unknown> | null;
+}
+
 export interface OrchestrationSnapshotDto {
   run?: OrchestrationRunDto | null;
   graph?: TaskGraphDto | null;
@@ -383,9 +402,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const message = (data as Record<string, unknown>)?.message
+    const rawMessage = (data as Record<string, unknown>)?.message
       ?? ((data as Record<string, Record<string, unknown>>)?.error)?.message
       ?? response.statusText;
+    const message = typeof rawMessage === 'string'
+      ? rawMessage
+      : JSON.stringify(rawMessage);
     throw new Error(message);
   }
 
@@ -495,6 +517,10 @@ export const api = {
   listAgentModes: () => request<AgentModeDto[]>('/api/v1/agent-modes'),
   listAgents: () => request<AgentProfileDto[]>('/api/v1/agents'),
   listTools: () => request<ToolDescriptorDto[]>('/api/v1/tools'),
+  executeCodeTool: (toolId: string, payload: CodeToolExecuteRequestDto = {}) => request<CodeToolExecuteResultDto>(`/api/v1/code/tools/${toolId}/execute`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
   saveAgent: (agentId: string, agent: {
     name: string;
     layer: string;

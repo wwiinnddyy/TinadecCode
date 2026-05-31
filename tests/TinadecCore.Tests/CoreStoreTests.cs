@@ -170,7 +170,7 @@ public sealed class CoreStoreTests
     }
 
     [Fact]
-    public void RegistersProgrammingToolsAsCodeLayerCapabilities()
+    public void RegistersProgrammingToolsAsToolLayerCodeSuiteCapabilities()
     {
         var registry = new ToolRegistryService();
 
@@ -184,6 +184,14 @@ public sealed class CoreStoreTests
         Assert.Contains(tools, tool => tool.Id == "sandbox_exec" && tool.Source == "codex-rust" && tool.RequiresApproval);
         Assert.Contains(tools, tool => tool.Id == "apply_patch" && tool.Source == "codex-rust" && tool.RequiresApproval);
         Assert.Contains(tools, tool => tool.Id == "review_format" && tool.Source == "codex-rust" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "project_templates" && tool.Source == "code" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "project_template_scaffold" && tool.Source == "code" && tool.RequiresApproval && tool.Risk == "workspace-write");
+        Assert.Contains(tools, tool => tool.Id == "language_runtime_probe" && tool.Source == "code" && !tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "bash_environment" && tool.Source == "code" && tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "debug_session" && tool.Source == "code" && tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "code_editor" && tool.Source == "code" && tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "git_worktree_manager" && tool.Source == "code" && tool.RequiresApproval);
+        Assert.Contains(tools, tool => tool.Id == "language_runtime_probe" && tool.Capabilities.Contains("runtime.nodejs") && tool.Capabilities.Contains("runtime.java"));
         Assert.All(tools, tool => Assert.Equal("programming", tool.Domain));
     }
 

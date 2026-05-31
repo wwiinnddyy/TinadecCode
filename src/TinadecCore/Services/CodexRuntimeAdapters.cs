@@ -26,7 +26,8 @@ public sealed class CodexToolInvocationAdapter(ICodeToolClient codeToolClient) :
 
     public bool CanInvoke(ToolDescriptorDto tool)
     {
-        return string.Equals(tool.Source, Id, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(tool.Source, Id, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(tool.Source, "code", StringComparison.OrdinalIgnoreCase);
     }
 
     public Task<CodeToolExecuteResultDto> InvokeAsync(

@@ -1,7 +1,7 @@
 import { node } from '@elysiajs/node';
 import { swagger } from '@elysiajs/swagger';
 import { Elysia } from 'elysia';
-import { executeCodeTool, listCodeToolIds, type CodeToolExecuteRequest } from './codeTools.js';
+import { executeCodeTool, listCodeToolIds, listCodeToolSpecs, type CodeToolExecuteRequest } from './codeTools.js';
 import { coreUrl, proxyJson, proxySse } from './coreClient.js';
 import { proxyDebugJson, debugWsUrl } from './debugProxy.js';
 
@@ -184,7 +184,8 @@ const app = new Elysia({ adapter: node() })
     return result.data;
   })
   .get('/api/v1/code/tools', () => ({
-    tools: listCodeToolIds()
+    tool_ids: listCodeToolIds(),
+    tools: listCodeToolSpecs()
   }))
   .get('/api/v1/tools', async ({ set }) => {
     const result = await proxyJson('/api/v1/tools');
