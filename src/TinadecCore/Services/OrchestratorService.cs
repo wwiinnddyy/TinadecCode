@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json.Nodes;
 using TinadecCore.Storage;
 using Tinadec.Contracts.Models;
@@ -12,6 +11,7 @@ public sealed class OrchestratorService
     private readonly CoreStore _store;
     private readonly EventHub _events;
     private readonly IAgentWorkflowRuntime _workflowRuntime;
+    private readonly IModelInvocationRuntime _modelRuntime;
     private readonly IToolRegistry _tools;
     private readonly ICapabilityPolicy _capabilityPolicy;
     private readonly IReadOnlyList<IToolInvocationAdapter> _invocationAdapters;
@@ -20,6 +20,7 @@ public sealed class OrchestratorService
         CoreStore store,
         EventHub events,
         IAgentWorkflowRuntime workflowRuntime,
+        IModelInvocationRuntime modelRuntime,
         IToolRegistry tools,
         ICapabilityPolicy capabilityPolicy,
         IEnumerable<IToolInvocationAdapter> invocationAdapters)
@@ -27,6 +28,7 @@ public sealed class OrchestratorService
         _store = store;
         _events = events;
         _workflowRuntime = workflowRuntime;
+        _modelRuntime = modelRuntime;
         _tools = tools;
         _capabilityPolicy = capabilityPolicy;
         _invocationAdapters = invocationAdapters.ToArray();
@@ -116,6 +118,65 @@ public sealed class OrchestratorService
         }
 
         return snapshot;
+    }
+
+    public async Task<SessionModelOrchestrationResult> CompleteRunWithModelAsync(
+        OrchestrationSnapshotDto snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        if (snapshot.Run is null)
+        {
+            return new SessionModelOrchestrationResult(null, null);
+        }
+
+        using var activity = TinadecActivitySource.Instance.StartActivity(SpanNames.AgentInference);
+        activity?
+            .SetTag(SpanAttrs.RunId, snapshot.Run.Id)
+            .SetTag(SpanAttrs.SessionId, snapshot.Run.SessionId)
+            .SetTag(SpanAttrs.RoutePurpose, "planner");
+
+        var invocation = await _modelRuntime.InvokeAsync(
+            snapshot.Run.SessionId,
+            "planner",
+            _store.ListMessages(snapshot.Run.SessionId),
+            cancellationToken);
+
+        activity?
+            .SetTag(SpanAttrs.ProviderId, invocation.Context.ProviderInstanceId)
+            .SetTag(SpanAttrs.ProviderInstanceId, invocation.Context.ProviderInstanceId)
+            .SetTag(SpanAttrs.Model, invocation.Context.EffectiveModel)
+            .SetTag(SpanAttrs.Status, invocation.Status)
+            .SetTag(SpanAttrs.ErrorCategory, invocation.ErrorCategory?.ToString())
+            .SetTag(SpanAttrs.FallbackProviderId, IsFallback(invocation) ? invocation.ErrorProviderId : null);
+
+        PublishModelEvent("model.requested", snapshot.Run.SessionId, snapshot.Run.Id, invocation, ["agent.meeting", "model.remote"]);
+
+        if (!string.Equals(invocation.Status, "executed", StringComparison.OrdinalIgnoreCase))
+        {
+            PublishModelEvent("model.failed", snapshot.Run.SessionId, snapshot.Run.Id, invocation, ["agent.meeting", "model.remote", "model.error"]);
+            return new SessionModelOrchestrationResult(null, invocation);
+        }
+
+        var reply = invocation.Content;
+        if (snapshot.Graph is not null)
+        {
+            reply = $"{reply}\n\nTask graph ready: {snapshot.Graph.Title} with {snapshot.Nodes.Count} nodes and {snapshot.Assignments.Count} execution assignments. Mutating actions remain approval-gated.";
+        }
+
+        var assistantMessage = _store.AddMessage(snapshot.Run.SessionId, "assistant", reply);
+        Publish("message.created", snapshot.Run.SessionId, new JsonObject
+        {
+            ["message_id"] = assistantMessage.Id,
+            ["role"] = assistantMessage.Role,
+            ["run_id"] = snapshot.Run.Id,
+            ["route_purpose"] = invocation.Context.Purpose,
+            ["provider_instance_id"] = invocation.Context.ProviderInstanceId,
+            ["model"] = invocation.Context.EffectiveModel,
+            ["fallback_provider_selected"] = IsFallback(invocation)
+        }, ["agent.message", "agent.meeting", "model.remote"]);
+
+        PublishModelEvent("model.completed", snapshot.Run.SessionId, snapshot.Run.Id, invocation, ["agent.meeting", "model.remote"]);
+        return new SessionModelOrchestrationResult(assistantMessage, invocation);
     }
 
     public async Task DispatchReadOnlyToolsAsync(
@@ -239,9 +300,57 @@ public sealed class OrchestratorService
         };
     }
 
+    private void PublishModelEvent(
+        string type,
+        string sessionId,
+        string runId,
+        ModelInvocationResultDto invocation,
+        IReadOnlyList<string> capabilities)
+    {
+        var payload = new JsonObject
+        {
+            ["run_id"] = runId,
+            ["agent_id"] = "agent_meeting",
+            ["agent_type"] = "meeting",
+            ["status"] = invocation.Status,
+            ["route_purpose"] = invocation.Context.Purpose,
+            ["provider_instance_id"] = invocation.Context.ProviderInstanceId,
+            ["driver"] = invocation.Context.Driver,
+            ["connection_kind"] = invocation.Context.ConnectionKind,
+            ["model"] = invocation.Context.EffectiveModel,
+            ["used_stub_response"] = invocation.UsedStubResponse,
+            ["runtime_id"] = invocation.RuntimeId,
+            ["error_category"] = invocation.ErrorCategory?.ToString(),
+            ["is_retryable"] = invocation.IsRetryable,
+            ["fallback_provider_selected"] = IsFallback(invocation)
+        };
+
+        if (!string.IsNullOrWhiteSpace(invocation.ErrorProviderId))
+        {
+            payload["error_provider_instance_id"] = invocation.ErrorProviderId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(invocation.SafeErrorMessage))
+        {
+            payload["safe_error_message"] = invocation.SafeErrorMessage;
+        }
+
+        Publish(type, sessionId, payload, capabilities);
+    }
+
+    private static bool IsFallback(ModelInvocationResultDto invocation)
+    {
+        return !string.IsNullOrWhiteSpace(invocation.ErrorProviderId)
+            && !invocation.ErrorProviderId.Equals(invocation.Context.ProviderInstanceId, StringComparison.OrdinalIgnoreCase);
+    }
+
     private void Publish(string type, string sessionId, JsonObject payload, IReadOnlyList<string> capabilities)
     {
         var envelope = _store.AppendNewEvent(type, sessionId, payload, capabilities);
         _events.Publish(envelope);
     }
 }
+
+public sealed record SessionModelOrchestrationResult(
+    MessageDto? AssistantMessage,
+    ModelInvocationResultDto? Invocation);

@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Tinadec.Contracts.Models;
@@ -41,13 +42,17 @@ public sealed record ModelSettingsDto(
     DateTimeOffset UpdatedAt);
 
 public sealed record ModelProviderTemplateDto(
+    string ProviderFamily,
     string Driver,
     string DisplayName,
     string ConnectionKind,
+    string CredentialKind,
     string Summary,
+    string ContributorDescription,
     string? DefaultBaseUrl,
     string? DefaultModel,
-    IReadOnlyList<string> Capabilities);
+    int DefaultTimeoutSeconds,
+    ProviderCapabilityDto Capabilities);
 
 public sealed record ModelProviderInstanceDto(
     string Id,
@@ -65,6 +70,7 @@ public sealed record ModelProviderInstanceDto(
     bool Enabled,
     string Status,
     string StatusMessage,
+    DateTimeOffset? CooldownUntil,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
@@ -353,4 +359,104 @@ public sealed record ModelInvocationResultDto(
     string Content,
     ResolvedModelInvocationContextDto Context,
     bool UsedStubResponse,
-    string? RuntimeId);
+    string? RuntimeId,
+    ProviderErrorCategory? ErrorCategory = null,
+    bool IsRetryable = false,
+    int? ProviderStatusCode = null,
+    int? ProviderExitCode = null,
+    string? SafeErrorMessage = null,
+    string? ErrorProviderId = null);
+
+public sealed record ModelInvocationRequestDto(
+    IReadOnlyList<MessageDto> Messages,
+    string? SystemPrompt,
+    IReadOnlyList<JsonObject> Tools,
+    ModelSettingsDto Settings,
+    ModelStateHandleDto? StateHandle);
+
+public sealed record ModelInvocationResponseDto(
+    string TextContent,
+    ModelUsageDto Usage,
+    ModelFinishReason FinishReason,
+    ProviderMetadataDto Metadata,
+    ModelStateHandleDto? StateHandle,
+    ProviderErrorCategory? ErrorCategory,
+    string? ErrorMessage);
+
+public sealed record ModelUsageDto(
+    int PromptTokens,
+    int CompletionTokens,
+    int TotalTokens);
+
+[JsonConverter(typeof(JsonStringEnumConverter<ModelFinishReason>))]
+public enum ModelFinishReason
+{
+    [JsonStringEnumMemberName("stop")]
+    Stop,
+    [JsonStringEnumMemberName("length")]
+    Length,
+    [JsonStringEnumMemberName("content_filter")]
+    ContentFilter,
+    [JsonStringEnumMemberName("tool_calls")]
+    ToolCalls,
+    [JsonStringEnumMemberName("error")]
+    Error,
+    [JsonStringEnumMemberName("cancelled")]
+    Cancelled,
+    [JsonStringEnumMemberName("unknown")]
+    Unknown
+}
+
+public sealed record ProviderMetadataDto(
+    string ProviderId,
+    string Model,
+    string? RawProviderName,
+    IReadOnlyDictionary<string, object?> Custom);
+
+[JsonConverter(typeof(JsonStringEnumConverter<ProviderErrorCategory>))]
+public enum ProviderErrorCategory
+{
+    [JsonStringEnumMemberName("authentication_failed")]
+    AuthenticationFailed,
+    [JsonStringEnumMemberName("rate_limited")]
+    RateLimited,
+    [JsonStringEnumMemberName("timeout")]
+    Timeout,
+    [JsonStringEnumMemberName("provider_unavailable")]
+    ProviderUnavailable,
+    [JsonStringEnumMemberName("invalid_request")]
+    InvalidRequest,
+    [JsonStringEnumMemberName("cancelled")]
+    Cancelled,
+    [JsonStringEnumMemberName("unknown")]
+    Unknown
+}
+
+public sealed record ProviderCapabilityDto(
+    bool SupportsStreaming,
+    bool SupportsTools,
+    bool SupportsJsonMode,
+    bool SupportsSystemPrompt,
+    int? MaxContextTokens,
+    bool RequiresWorkspace,
+    string CredentialKind,
+    ProviderHealthStatus HealthStatus);
+
+[JsonConverter(typeof(JsonStringEnumConverter<ProviderHealthStatus>))]
+public enum ProviderHealthStatus
+{
+    [JsonStringEnumMemberName("healthy")]
+    Healthy,
+    [JsonStringEnumMemberName("unhealthy")]
+    Unhealthy,
+    [JsonStringEnumMemberName("unknown")]
+    Unknown,
+    [JsonStringEnumMemberName("disabled")]
+    Disabled,
+    [JsonStringEnumMemberName("cooldown")]
+    Cooldown
+}
+
+public sealed record ModelStateHandleDto(
+    string Handle,
+    DateTimeOffset? ExpiresAt);

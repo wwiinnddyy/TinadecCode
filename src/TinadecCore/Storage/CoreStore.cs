@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Data.Sqlite;
 using TinadecCore.Services;
 using Tinadec.Contracts.Events;
@@ -109,6 +108,11 @@ public sealed class CoreStore
                     launch_args text null,
                     capabilities_json text not null,
                     enabled integer not null,
+                    health_status text not null default 'healthy',
+                    cooldown_until text null,
+                    failure_count integer not null default 0,
+                    last_failure_at text null,
+                    last_error_category text null,
                     created_at text not null,
                     updated_at text not null
                 );
@@ -337,8 +341,37 @@ public sealed class CoreStore
             }
             catch (SqliteException)
             {
-                // Column already exists â€?ignore
+                // Column already exists ï¿½?ignore
             }
+
+            AddColumnIfMissing(connection, "model_provider_instances", "health_status", "text not null default 'healthy'");
+            AddColumnIfMissing(connection, "model_provider_instances", "cooldown_until", "text null");
+            AddColumnIfMissing(connection, "model_provider_instances", "failure_count", "integer not null default 0");
+            AddColumnIfMissing(connection, "model_provider_instances", "last_failure_at", "text null");
+            AddColumnIfMissing(connection, "model_provider_instances", "last_error_category", "text null");
+
+            Execute(connection, """
+                update model_provider_instances
+                set capabilities_json = '["chat","streaming","tool-calls"]'
+                where capabilities_json is null
+                   or trim(capabilities_json) = ''
+                   or lower(trim(capabilities_json)) = 'null';
+                """);
+
+            Execute(connection, """
+                update model_provider_instances
+                set health_status = 'healthy'
+                where health_status is null
+                   or trim(health_status) = ''
+                   or lower(trim(health_status)) not in ('healthy', 'unhealthy', 'disabled', 'cooldown', 'unknown');
+                """);
+
+            Execute(connection, """
+                update model_provider_instances
+                set failure_count = 0
+                where failure_count is null
+                   or failure_count < 0;
+                """);
 
             Execute(connection, """
                 insert into model_settings (id, base_url, model, encrypted_api_key, updated_at)
@@ -361,6 +394,11 @@ public sealed class CoreStore
                     launch_args,
                     capabilities_json,
                     enabled,
+                    health_status,
+                    cooldown_until,
+                    failure_count,
+                    last_failure_at,
+                    last_error_category,
                     created_at,
                     updated_at
                 )
@@ -378,6 +416,11 @@ public sealed class CoreStore
                     null,
                     '["chat","streaming","tool-calls"]',
                     1,
+                    'healthy',
+                    null,
+                    0,
+                    null,
+                    null,
                     $now,
                     $now
                 from model_settings
@@ -754,6 +797,11 @@ public sealed class CoreStore
                     launch_args,
                     capabilities_json,
                     enabled,
+                    health_status,
+                    cooldown_until,
+                    failure_count,
+                    last_failure_at,
+                    last_error_category,
                     created_at,
                     updated_at
                 )
@@ -771,6 +819,11 @@ public sealed class CoreStore
                     null,
                     '["chat","streaming","tool-calls"]',
                     1,
+                    'healthy',
+                    null,
+                    0,
+                    null,
+                    null,
                     $updated_at,
                     $updated_at
                 )
@@ -810,7 +863,8 @@ public sealed class CoreStore
         using var command = connection.CreateCommand();
         command.CommandText = """
             select id, driver, display_name, connection_kind, base_url, model, encrypted_api_key, binary_path, home_path,
-                   server_url, launch_args, capabilities_json, enabled, created_at, updated_at
+                   server_url, launch_args, capabilities_json, enabled, health_status, cooldown_until, failure_count,
+                   last_failure_at, last_error_category, created_at, updated_at
             from model_provider_instances
             order by updated_at desc, display_name
             """;
@@ -831,7 +885,8 @@ public sealed class CoreStore
         using var command = connection.CreateCommand();
         command.CommandText = """
             select id, driver, display_name, connection_kind, base_url, model, encrypted_api_key, binary_path, home_path,
-                   server_url, launch_args, capabilities_json, enabled, created_at, updated_at
+                   server_url, launch_args, capabilities_json, enabled, health_status, cooldown_until, failure_count,
+                   last_failure_at, last_error_category, created_at, updated_at
             from model_provider_instances
             where id = $id
             """;
@@ -856,6 +911,8 @@ public sealed class CoreStore
             ? request.Capabilities.Select(NormalizeOptional).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
             : InferCapabilities(driver, connectionKind);
         var capabilitiesJson = JsonSerializer.Serialize(capabilities, TinadecJson.Options);
+        var existing = GetStoredModelProviderInstance(id);
+        var health = ResolveProviderHealth(capabilities, existing);
 
         lock (_gate)
         {
@@ -875,6 +932,11 @@ public sealed class CoreStore
                     launch_args,
                     capabilities_json,
                     enabled,
+                    health_status,
+                    cooldown_until,
+                    failure_count,
+                    last_failure_at,
+                    last_error_category,
                     created_at,
                     updated_at
                 )
@@ -892,6 +954,11 @@ public sealed class CoreStore
                     $launch_args,
                     $capabilities_json,
                     $enabled,
+                    $health_status,
+                    $cooldown_until,
+                    $failure_count,
+                    $last_failure_at,
+                    $last_error_category,
                     $created_at,
                     $updated_at
                 )
@@ -908,6 +975,11 @@ public sealed class CoreStore
                     launch_args = excluded.launch_args,
                     capabilities_json = excluded.capabilities_json,
                     enabled = excluded.enabled,
+                    health_status = excluded.health_status,
+                    cooldown_until = excluded.cooldown_until,
+                    failure_count = excluded.failure_count,
+                    last_failure_at = excluded.last_failure_at,
+                    last_error_category = excluded.last_error_category,
                     updated_at = excluded.updated_at
                 """, command =>
             {
@@ -924,6 +996,11 @@ public sealed class CoreStore
                 command.Parameters.AddWithValue("$launch_args", (object?)NormalizeOptional(request.LaunchArgs) ?? DBNull.Value);
                 command.Parameters.AddWithValue("$capabilities_json", capabilitiesJson);
                 command.Parameters.AddWithValue("$enabled", request.Enabled ? 1 : 0);
+                command.Parameters.AddWithValue("$health_status", ToProviderHealthStatusStorageValue(health.HealthStatus));
+                command.Parameters.AddWithValue("$cooldown_until", health.CooldownUntil is null ? DBNull.Value : health.CooldownUntil.Value.ToString("O"));
+                command.Parameters.AddWithValue("$failure_count", health.FailureCount);
+                command.Parameters.AddWithValue("$last_failure_at", health.LastFailureAt is null ? DBNull.Value : health.LastFailureAt.Value.ToString("O"));
+                command.Parameters.AddWithValue("$last_error_category", health.LastErrorCategory is null ? DBNull.Value : ToProviderErrorCategoryStorageValue(health.LastErrorCategory.Value));
                 command.Parameters.AddWithValue("$created_at", now.ToString("O"));
                 command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
             });
@@ -953,6 +1030,92 @@ public sealed class CoreStore
         }
 
         return true;
+    }
+
+    public void RecordModelProviderFailure(string providerInstanceId, ProviderErrorCategory category, DateTimeOffset now)
+    {
+        var provider = GetStoredModelProviderInstance(providerInstanceId)
+            ?? throw new InvalidOperationException($"Model provider '{providerInstanceId}' was not found.");
+        var failureCount = provider.FailureCount + 1;
+        var capabilities = provider.Capabilities
+            .Where(capability => !HasCapabilityKey(capability, "health")
+                && !HasCapabilityKey(capability, "cooldown_started_at")
+                && !HasCapabilityKey(capability, "cooldown_until")
+                && !HasCapabilityKey(capability, "last_error")
+                && !HasCapabilityKey(capability, "failure_count"))
+            .Concat([
+                "health:cooldown",
+                $"cooldown_started_at:{now:O}",
+                $"cooldown_until:{now.AddMinutes(5):O}",
+                $"last_error:{category.ToString()}",
+                $"failure_count:{failureCount}"
+            ])
+            .ToArray();
+        var request = new SaveModelProviderInstanceRequest(
+            provider.Id,
+            provider.Driver,
+            provider.DisplayName,
+            provider.ConnectionKind,
+            provider.BaseUrl,
+            provider.Model,
+            ApiKey: null,
+            ClearApiKey: false,
+            provider.BinaryPath,
+            provider.HomePath,
+            provider.ServerUrl,
+            provider.LaunchArgs,
+            capabilities,
+                provider.Enabled);
+
+        SaveModelProviderInstance(request, provider.EncryptedApiKey);
+    }
+
+    public void RecordModelProviderSuccess(string providerInstanceId)
+    {
+        var provider = GetStoredModelProviderInstance(providerInstanceId)
+            ?? throw new InvalidOperationException($"Model provider '{providerInstanceId}' was not found.");
+
+        if (provider.HealthStatus is not ProviderHealthStatus.Cooldown
+            && provider.HealthStatus is not ProviderHealthStatus.Unhealthy)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var capabilities = provider.Capabilities
+            .Where(capability => !HasCapabilityKey(capability, "health")
+                && !HasCapabilityKey(capability, "cooldown_started_at")
+                && !HasCapabilityKey(capability, "cooldown_until")
+                && !HasCapabilityKey(capability, "last_error")
+                && !HasCapabilityKey(capability, "failure_count"))
+            .Concat([
+                "health:healthy",
+                "failure_count:0"
+            ])
+            .ToArray();
+        var capabilitiesJson = JsonSerializer.Serialize(capabilities, TinadecJson.Options);
+
+        lock (_gate)
+        {
+            using var connection = OpenConnection();
+            Execute(connection, """
+                update model_provider_instances
+                set health_status = $health_status,
+                    cooldown_until = null,
+                    failure_count = 0,
+                    last_failure_at = null,
+                    last_error_category = null,
+                    capabilities_json = $capabilities_json,
+                    updated_at = $updated_at
+                where id = $id
+                """, command =>
+            {
+                command.Parameters.AddWithValue("$health_status", "healthy");
+                command.Parameters.AddWithValue("$capabilities_json", capabilitiesJson);
+                command.Parameters.AddWithValue("$updated_at", now.ToString("O"));
+                command.Parameters.AddWithValue("$id", providerInstanceId);
+            });
+        }
     }
 
     public IReadOnlyList<ModelRouteDto> ListModelRoutes()
@@ -2518,6 +2681,17 @@ public sealed class CoreStore
         command.ExecuteNonQuery();
     }
 
+    private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string definition)
+    {
+        try
+        {
+            Execute(connection, $"alter table {table} add column {column} {definition}");
+        }
+        catch (SqliteException)
+        {
+        }
+    }
+
     private static DateTimeOffset ParseTime(string value)
     {
         return DateTimeOffset.Parse(value, null, System.Globalization.DateTimeStyles.RoundtripKind);
@@ -2586,8 +2760,13 @@ public sealed class CoreStore
             reader.IsDBNull(10) ? null : reader.GetString(10),
             capabilities,
             reader.GetInt32(12) == 1,
-            ParseTime(reader.GetString(13)),
-            ParseTime(reader.GetString(14)));
+            ParseProviderHealthStatus(reader.GetString(13)),
+            reader.IsDBNull(14) ? null : ParseTime(reader.GetString(14)),
+            reader.GetInt32(15),
+            reader.IsDBNull(16) ? null : ParseTime(reader.GetString(16)),
+            reader.IsDBNull(17) ? null : ParseProviderErrorCategory(reader.GetString(17)),
+            ParseTime(reader.GetString(18)),
+            ParseTime(reader.GetString(19)));
     }
 
     private static ModelRouteDto ReadModelRoute(SqliteDataReader reader)
@@ -2868,7 +3047,7 @@ public sealed class CoreStore
     private static string NormalizeConnectionKind(string? value, string driver)
     {
         var normalized = NormalizePlain(value, InferConnectionKind(driver)).ToLowerInvariant();
-        return normalized is "api-key" or "cli" or "local-server" ? normalized : InferConnectionKind(driver);
+        return normalized is "api-key" or "cli" or "local-server" or "http" ? normalized : InferConnectionKind(driver);
     }
 
     private static string InferConnectionKind(string driver)
@@ -2905,4 +3084,104 @@ public sealed class CoreStore
 
         return ["chat", "streaming", "tool-calls"];
     }
+
+    private static ProviderHealthState ResolveProviderHealth(
+        IReadOnlyList<string> capabilities,
+        StoredModelProviderInstance? existing)
+    {
+        var health = ResolveCapabilityValue(capabilities, "health") is { } healthValue
+            ? ParseProviderHealthStatus(healthValue)
+            : existing?.HealthStatus ?? ProviderHealthStatus.Healthy;
+        var cooldownUntil = ResolveCapabilityValue(capabilities, "cooldown_until") is { } cooldownValue
+            ? ParseTime(cooldownValue)
+            : existing?.CooldownUntil;
+        var failureCount = ResolveCapabilityValue(capabilities, "failure_count") is { } failureValue && int.TryParse(failureValue, out var parsedFailureCount)
+            ? parsedFailureCount
+            : existing?.FailureCount ?? 0;
+        var lastFailureAt = ResolveCapabilityValue(capabilities, "cooldown_started_at") is { } failureAtValue
+            ? ParseTime(failureAtValue)
+            : existing?.LastFailureAt;
+        var lastErrorCategory = ResolveCapabilityValue(capabilities, "last_error") is { } errorValue
+            ? ParseProviderErrorCategory(errorValue)
+            : existing?.LastErrorCategory;
+
+        return new ProviderHealthState(health, cooldownUntil, failureCount, lastFailureAt, lastErrorCategory);
+    }
+
+    private static ProviderHealthStatus ParseProviderHealthStatus(string value)
+    {
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "healthy" => ProviderHealthStatus.Healthy,
+            "unhealthy" => ProviderHealthStatus.Unhealthy,
+            "disabled" => ProviderHealthStatus.Disabled,
+            "cooldown" => ProviderHealthStatus.Cooldown,
+            _ => ProviderHealthStatus.Unknown
+        };
+    }
+
+    private static string ToProviderHealthStatusStorageValue(ProviderHealthStatus status)
+    {
+        return status switch
+        {
+            ProviderHealthStatus.Healthy => "healthy",
+            ProviderHealthStatus.Unhealthy => "unhealthy",
+            ProviderHealthStatus.Disabled => "disabled",
+            ProviderHealthStatus.Cooldown => "cooldown",
+            _ => "unknown"
+        };
+    }
+
+    private static ProviderErrorCategory ParseProviderErrorCategory(string value)
+    {
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "authentication_failed" or "authenticationfailed" => ProviderErrorCategory.AuthenticationFailed,
+            "rate_limited" or "ratelimited" => ProviderErrorCategory.RateLimited,
+            "timeout" => ProviderErrorCategory.Timeout,
+            "provider_unavailable" or "providerunavailable" => ProviderErrorCategory.ProviderUnavailable,
+            "invalid_request" or "invalidrequest" => ProviderErrorCategory.InvalidRequest,
+            "cancelled" => ProviderErrorCategory.Cancelled,
+            _ => ProviderErrorCategory.Unknown
+        };
+    }
+
+    private static string ToProviderErrorCategoryStorageValue(ProviderErrorCategory category)
+    {
+        return category switch
+        {
+            ProviderErrorCategory.AuthenticationFailed => "authentication_failed",
+            ProviderErrorCategory.RateLimited => "rate_limited",
+            ProviderErrorCategory.Timeout => "timeout",
+            ProviderErrorCategory.ProviderUnavailable => "provider_unavailable",
+            ProviderErrorCategory.InvalidRequest => "invalid_request",
+            ProviderErrorCategory.Cancelled => "cancelled",
+            _ => "unknown"
+        };
+    }
+
+    private static string? ResolveCapabilityValue(IReadOnlyList<string> capabilities, string key)
+    {
+        var prefix = key + ":";
+        return capabilities.FirstOrDefault(capability => capability.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))?[prefix.Length..];
+    }
+
+    private static bool HasCapabilityKey(string capability, string key)
+    {
+        return capability.StartsWith(key + ":", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ResolveCapabilityInt(IReadOnlyList<string> capabilities, string key)
+    {
+        var prefix = key + ":";
+        var value = capabilities.FirstOrDefault(capability => capability.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))?[prefix.Length..];
+        return int.TryParse(value, out var parsed) ? parsed : 0;
+    }
+
+    private sealed record ProviderHealthState(
+        ProviderHealthStatus HealthStatus,
+        DateTimeOffset? CooldownUntil,
+        int FailureCount,
+        DateTimeOffset? LastFailureAt,
+        ProviderErrorCategory? LastErrorCategory);
 }

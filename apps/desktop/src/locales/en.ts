@@ -118,6 +118,7 @@ export default {
     statusNeedsKey: 'Missing Key',
     statusDisabled: 'Disabled',
     statusNotConfigured: 'Not Configured',
+    statusCooldown: 'Cooldown',
     save: 'Save',
     cancel: 'Cancel',
     capabilities: 'Capabilities',

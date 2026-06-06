@@ -16,6 +16,8 @@ public static class SpanNames
     public const string AgentWorkflowCompile = "agent.workflow_compile";
     public const string SqliteQuery = "sqlite.query";
     public const string ModelRequest = "model.request";
+    public const string ModelRouteSelection = "model.route_selection";
+    public const string ModelProviderInvocation = "model.provider_invocation";
 }
 
 /// <summary>
@@ -23,6 +25,7 @@ public static class SpanNames
 /// </summary>
 public static class SpanAttrs
 {
+    public const string ProviderId = "provider_id";
     public const string SessionId = "session_id";
     public const string RunId = "run_id";
     public const string AgentId = "agent_id";
@@ -65,4 +68,10 @@ public static class SpanAttrs
     public const string HasApiKey = "has_api_key";
     public const string Status = "status";
     public const string Simulated = "simulated";
+    public const string RoutePurpose = "route_purpose";
+    public const string ErrorCategory = "error_category";
+    public const string RetryCount = "retry_count";
+    public const string FallbackProviderId = "fallback_provider_id";
+    public const string HealthStatus = "health_status";
+    public const string MessageCount = "message_count";
 }

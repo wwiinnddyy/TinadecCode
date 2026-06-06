@@ -118,6 +118,7 @@ export default {
     statusNeedsKey: '缺少密钥',
     statusDisabled: '已停用',
     statusNotConfigured: '未配置',
+    statusCooldown: '冷却中',
     save: '保存',
     cancel: '取消',
     capabilities: '能力',

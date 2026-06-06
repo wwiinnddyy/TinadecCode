@@ -30,7 +30,6 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<CoreStore>();
 builder.Services.AddSingleton<EventHub>();
 builder.Services.AddSingleton<SecretProtector>();
-builder.Services.AddHttpClient<OpenAiCompatibleClient>();
 builder.Services.AddSingleton<ICapabilityProvider, CodexCapabilityProvider>();
 builder.Services.AddSingleton<ICapabilityProvider, CodeCapabilityProvider>();
 builder.Services.AddSingleton<IRuntimeKernelAdapter, CodexRuntimeKernelAdapter>();
@@ -41,8 +40,10 @@ builder.Services.AddSingleton<IModelRouteResolver, ModelRouteResolver>();
 builder.Services.AddSingleton<IModelCredentialResolver, ModelCredentialResolver>();
 builder.Services.AddSingleton<IModelInvocationRuntime, ModelInvocationRuntime>();
 builder.Services.AddSingleton<IModelManagementService, ModelManagementService>();
-builder.Services.AddSingleton<IModelProviderRuntime, OpenAiCompatibleProviderRuntime>();
-builder.Services.AddSingleton<IModelProviderRuntime, CliProviderRuntime>();
+builder.Services.AddModelProviderModule<LocalHttpModule>();
+builder.Services.AddModelProviderModule<AnthropicModule>();
+builder.Services.AddModelProviderModule<OpenAiCompatibleModule>();
+builder.Services.AddModelProviderModule<CliModule>();
 builder.Services.AddHttpClient<ICodeToolClient, CodeToolClient>(client =>
 {
     var gatewayUrl = Environment.GetEnvironmentVariable("TINADEC_GATEWAY_URL") ?? "http://127.0.0.1:48730";
@@ -136,7 +137,6 @@ app.MapPost("/api/v1/sessions/{sessionId}/messages", async (
     CoreStore coreStore,
     EventHub events,
     OrchestratorService orchestrator,
-    IModelInvocationRuntime modelRuntime,
     CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.Content))
@@ -154,36 +154,10 @@ app.MapPost("/api/v1/sessions/{sessionId}/messages", async (
     var orchestration = orchestrator.CreateRunForMessage(sessionId, userMessage.Id, userMessage.Content);
     await orchestrator.DispatchReadOnlyToolsAsync(orchestration, userMessage.Content, cancellationToken);
 
-    var modelInvocation = await modelRuntime.InvokeAsync(sessionId, "planner", coreStore.ListMessages(sessionId), cancellationToken);
-    var context = modelInvocation.Context;
-
-    Publish(events, coreStore.AppendNewEvent("model.requested", sessionId, new JsonObject
-    {
-        ["agent_id"] = "agent_meeting",
-        ["agent_type"] = "meeting",
-        ["route_purpose"] = context.Purpose,
-        ["provider_instance_id"] = context.ProviderInstanceId,
-        ["driver"] = context.Driver,
-        ["connection_kind"] = context.ConnectionKind,
-        ["model"] = context.EffectiveModel,
-        ["base_url"] = context.EffectiveBaseUrl,
-        ["has_api_key"] = !string.IsNullOrWhiteSpace(context.EncryptedApiKey)
-    }, ["agent.meeting", "model.remote"]));
-
-    var reply = modelInvocation.Content;
-    if (orchestration.Run is not null && orchestration.Graph is not null)
-    {
-        reply = $"{reply}\n\nTask graph ready: {orchestration.Graph.Title} with {orchestration.Nodes.Count} nodes and {orchestration.Assignments.Count} execution assignments. Mutating actions remain approval-gated.";
-    }
-    var assistantMessage = coreStore.AddMessage(sessionId, "assistant", reply);
-
-    Publish(events, coreStore.AppendNewEvent("message.created", sessionId, new JsonObject
-    {
-        ["message_id"] = assistantMessage.Id,
-        ["role"] = assistantMessage.Role
-    }, ["agent.message", "agent.meeting", "model.remote"]));
-
-    return Results.Ok(assistantMessage);
+    var modelCompletion = await orchestrator.CompleteRunWithModelAsync(orchestration, cancellationToken);
+    return modelCompletion.AssistantMessage is null
+        ? Results.Json(new TinadecError("MODEL_INVOCATION_FAILED", "Model invocation failed."), statusCode: StatusCodes.Status502BadGateway)
+        : Results.Ok(modelCompletion.AssistantMessage);
 });
 
 app.MapGet("/api/v1/sessions/{sessionId}/orchestration", (string sessionId, CoreStore coreStore) =>

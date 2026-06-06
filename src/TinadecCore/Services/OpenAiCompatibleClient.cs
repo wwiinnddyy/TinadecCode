@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -16,6 +15,17 @@ public sealed class OpenAiCompatibleClient(HttpClient httpClient)
         IReadOnlyList<MessageDto> messages,
         CancellationToken cancellationToken)
     {
+        var response = await CreateAssistantResponseAsync(settings, apiKey, messages, null, cancellationToken);
+        return response.TextContent;
+    }
+
+    public async Task<ModelInvocationResponseDto> CreateAssistantResponseAsync(
+        StoredModelSettings settings,
+        string? apiKey,
+        IReadOnlyList<MessageDto> messages,
+        string? providerId,
+        CancellationToken cancellationToken)
+    {
         using var activity = TinadecActivitySource.Instance.StartActivity(SpanNames.AgentInference);
         activity?
             .SetTag(SpanAttrs.Model, settings.Model)
@@ -25,35 +35,60 @@ public sealed class OpenAiCompatibleClient(HttpClient httpClient)
         if (string.IsNullOrWhiteSpace(settings.BaseUrl) ||
             string.IsNullOrWhiteSpace(settings.Model))
         {
-            return "TinadecCode Core is running. Add an OpenAI-compatible base URL and model to enable live model responses.";
+            return CreateResponse(
+                "TinadecCode Core is running. Add an OpenAI-compatible base URL and model to enable live model responses.",
+                new ModelUsageDto(0, 0, 0),
+                ModelFinishReason.Unknown,
+                settings,
+                providerId,
+                null,
+                null,
+                null,
+                null);
         }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         using var request = BuildChatCompletionRequest(settings, apiKey, messages);
         using var response = await httpClient.SendAsync(request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
             activity?.SetTag(SpanAttrs.StatusCode, (int)response.StatusCode);
             activity?.SetError($"Model request failed with {(int)response.StatusCode}");
-            return $"Model request failed with {(int)response.StatusCode}: {Redact(body)}";
+            throw new HttpRequestException(
+                $"Model request failed with {(int)response.StatusCode}.",
+                null,
+                response.StatusCode);
         }
 
         sw.Stop();
         activity?.SetTag(SpanAttrs.LatencyMs, sw.ElapsedMilliseconds);
 
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
         using var document = JsonDocument.Parse(body);
-        var content = document.RootElement
-            .GetProperty("choices")[0]
+        var root = document.RootElement;
+        var choice = root.GetProperty("choices")[0];
+        var content = choice
             .GetProperty("message")
             .GetProperty("content")
             .GetString();
 
-        return string.IsNullOrWhiteSpace(content)
+        var textContent = string.IsNullOrWhiteSpace(content)
             ? "The model returned an empty response."
             : content;
+
+        return CreateResponse(
+            textContent,
+            ReadUsage(root),
+            ReadFinishReason(choice),
+            settings,
+            providerId,
+            ReadString(root, "id"),
+            ReadString(root, "object"),
+            ReadInt64(root, "created"),
+            root.GetProperty("choices").GetArrayLength());
     }
 
     public static HttpRequestMessage BuildChatCompletionRequest(
@@ -98,13 +133,92 @@ public sealed class OpenAiCompatibleClient(HttpClient httpClient)
         return new Uri(trimmed, UriKind.Absolute);
     }
 
-    private static string Redact(string body)
+    private static ModelInvocationResponseDto CreateResponse(
+        string textContent,
+        ModelUsageDto usage,
+        ModelFinishReason finishReason,
+        StoredModelSettings settings,
+        string? providerId,
+        string? responseId,
+        string? responseObject,
+        long? created,
+        int? choiceCount)
     {
-        if (body.Length <= 300)
+        var custom = new Dictionary<string, object?>();
+        AddIfPresent(custom, "response_id", responseId);
+        AddIfPresent(custom, "response_object", responseObject);
+        AddIfPresent(custom, "created", created);
+        AddIfPresent(custom, "choice_count", choiceCount);
+
+        return new ModelInvocationResponseDto(
+            textContent,
+            usage,
+            finishReason,
+            new ProviderMetadataDto(
+                providerId ?? "openai-compatible",
+                settings.Model,
+                "openai-compatible",
+                custom),
+            null,
+            null,
+            null);
+    }
+
+    private static ModelUsageDto ReadUsage(JsonElement root)
+    {
+        if (!root.TryGetProperty("usage", out var usage))
         {
-            return body;
+            return new ModelUsageDto(0, 0, 0);
         }
 
-        return body[..300] + "...";
+        var promptTokens = ReadInt32(usage, "prompt_tokens") ?? 0;
+        var completionTokens = ReadInt32(usage, "completion_tokens") ?? 0;
+        var totalTokens = ReadInt32(usage, "total_tokens") ?? promptTokens + completionTokens;
+        return new ModelUsageDto(promptTokens, completionTokens, totalTokens);
     }
+
+    private static ModelFinishReason ReadFinishReason(JsonElement choice)
+    {
+        var finishReason = ReadString(choice, "finish_reason");
+        return finishReason switch
+        {
+            "stop" => ModelFinishReason.Stop,
+            "length" => ModelFinishReason.Length,
+            "content_filter" => ModelFinishReason.ContentFilter,
+            "tool_calls" or "function_call" => ModelFinishReason.ToolCalls,
+            "cancelled" => ModelFinishReason.Cancelled,
+            null or "" => ModelFinishReason.Unknown,
+            _ => ModelFinishReason.Unknown
+        };
+    }
+
+    private static string? ReadString(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+    }
+
+    private static int? ReadInt32(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var property) && property.TryGetInt32(out var value)
+            ? value
+            : null;
+    }
+
+    private static long? ReadInt64(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var property) && property.TryGetInt64(out var value)
+            ? value
+            : null;
+    }
+
+    private static void AddIfPresent(Dictionary<string, object?> custom, string key, object? value)
+    {
+        if (value is not null)
+        {
+            custom[key] = value;
+        }
+    }
+
 }

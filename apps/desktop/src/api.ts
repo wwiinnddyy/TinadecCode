@@ -42,13 +42,28 @@ export interface ModelSettingsDto {
 }
 
 export interface ModelProviderTemplateDto {
+  provider_family: string;
   driver: string;
   display_name: string;
   connection_kind: 'api-key' | 'cli' | 'local-server' | string;
+  credential_kind: string;
   summary: string;
+  contributor_description: string;
   default_base_url?: string | null;
   default_model?: string | null;
-  capabilities: string[];
+  default_timeout_seconds: number;
+  capabilities: ProviderCapabilityDto;
+}
+
+export interface ProviderCapabilityDto {
+  supports_streaming: boolean;
+  supports_tools: boolean;
+  supports_json_mode: boolean;
+  supports_system_prompt: boolean;
+  max_context_tokens?: number | null;
+  requires_workspace: boolean;
+  credential_kind: string;
+  health_status: 'healthy' | 'unhealthy' | 'unknown' | 'disabled' | 'cooldown' | string;
 }
 
 export interface ModelProviderInstanceDto {
@@ -67,6 +82,7 @@ export interface ModelProviderInstanceDto {
   enabled: boolean;
   status: string;
   status_message: string;
+  cooldown_until?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -402,16 +418,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const rawMessage = (data as Record<string, unknown>)?.message
-      ?? ((data as Record<string, Record<string, unknown>>)?.error)?.message
-      ?? response.statusText;
-    const message = typeof rawMessage === 'string'
-      ? rawMessage
-      : JSON.stringify(rawMessage);
+    const message = extractErrorMessage(data, response.statusText);
     throw new Error(message);
   }
 
   return data as T;
+}
+
+function extractErrorMessage(data: unknown, fallback: string): string {
+  if (!data || typeof data !== 'object') return fallback;
+
+  const record = data as Record<string, unknown>;
+  const directMessage = record.message;
+  if (typeof directMessage === 'string' && directMessage.length > 0) return directMessage;
+
+  const nestedError = record.error;
+  if (nestedError && typeof nestedError === 'object') {
+    const nestedMessage = (nestedError as Record<string, unknown>).message;
+    if (typeof nestedMessage === 'string' && nestedMessage.length > 0) return nestedMessage;
+  }
+
+  return fallback;
 }
 
 export const api = {

@@ -31,6 +31,7 @@ src/TinadecCore/
 ## CONVENTIONS
 - Target framework is `net10.0`; nullable and implicit usings are enabled.
 - HTTP JSON uses `JsonNamingPolicy.SnakeCaseLower`; keep event/DTO casing stable.
+- Provider catalog templates now expose family, driver, connection kind, credential kind, timeout, and capability metadata.
 - `CoreStore` is SQLite-first and seeds built-in agents/providers/routes/extensions.
 - Tool execution must preserve approval-gated posture.
 - Tool layer capabilities are registered in Core. `CodeCapabilityProvider` is the built-in Code suite for project templates, runtime probes, bash-like env, debugging, editor, and Git worktree management.

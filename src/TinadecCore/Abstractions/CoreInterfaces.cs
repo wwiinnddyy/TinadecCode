@@ -161,6 +161,23 @@ public interface IModelProviderRuntime
         CancellationToken cancellationToken = default);
 }
 
+public interface IModelProviderModule
+{
+    string ProviderFamily { get; }
+    void RegisterServices(IServiceCollection services);
+    ProviderCapabilityDto GetCapabilities();
+}
+
+public sealed record ModelProviderModuleMetadata(
+    string ProviderFamily,
+    ProviderCapabilityDto Capabilities);
+
+public interface IModelProviderModuleCatalog
+{
+    IReadOnlyList<ModelProviderModuleMetadata> ListModules();
+    ProviderCapabilityDto? GetCapabilities(string providerFamily);
+}
+
 public interface IModelInvocationRuntime
 {
     Task<ModelInvocationResultDto> InvokeAsync(

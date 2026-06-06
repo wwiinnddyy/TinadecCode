@@ -1,4 +1,5 @@
 using Tinadec.Contracts.Models;
+using TinadecCore.Services;
 
 namespace TinadecCore.Storage;
 
@@ -16,6 +17,11 @@ public sealed record StoredModelProviderInstance(
     string? LaunchArgs,
     IReadOnlyList<string> Capabilities,
     bool Enabled,
+    ProviderHealthStatus HealthStatus,
+    DateTimeOffset? CooldownUntil,
+    int FailureCount,
+    DateTimeOffset? LastFailureAt,
+    ProviderErrorCategory? LastErrorCategory,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt)
 {
@@ -40,6 +46,7 @@ public sealed record StoredModelProviderInstance(
             Enabled,
             status,
             message,
+            CooldownUntil,
             CreatedAt,
             UpdatedAt);
     }
@@ -56,23 +63,52 @@ public sealed record StoredModelProviderInstance(
             return ("disabled", "Provider is disabled.");
         }
 
-        if (ConnectionKind.Equals("cli", StringComparison.OrdinalIgnoreCase))
+        if (HealthStatus is ProviderHealthStatus.Disabled)
         {
-            return string.IsNullOrWhiteSpace(BinaryPath)
-                ? ("not_configured", "CLI binary path is required.")
-                : ("ready", "CLI provider is configured.");
+            return ("disabled", "Provider health is disabled.");
         }
 
-        if (string.IsNullOrWhiteSpace(BaseUrl) || string.IsNullOrWhiteSpace(Model))
+        var isCli = ConnectionKind.Equals("cli", StringComparison.OrdinalIgnoreCase);
+        if (isCli)
+        {
+            if (string.IsNullOrWhiteSpace(BinaryPath))
+            {
+                return ("not_configured", "CLI binary path is required.");
+            }
+        }
+
+        if (!isCli && (string.IsNullOrWhiteSpace(BaseUrl) || string.IsNullOrWhiteSpace(Model)))
         {
             return ("not_configured", "Base URL and model are required.");
         }
 
-        if (ConnectionKind.Equals("api-key", StringComparison.OrdinalIgnoreCase) && !HasApiKey)
+        if (ProviderTemplateRules.RequiresApiKey(Driver, ConnectionKind, Capabilities) && !HasApiKey)
         {
             return ("needs_key", "API key is not set.");
         }
 
+        if (IsInCooldown())
+        {
+            return LastErrorCategory is null
+                ? ("cooldown", "Provider is cooling down after a retryable failure.")
+                : ("cooldown", $"Provider is cooling down after {LastErrorCategory.Value}.");
+        }
+
+        if (isCli)
+        {
+            return ("ready", "CLI provider is configured.");
+        }
+
         return ("ready", "Provider is ready.");
+    }
+
+    private bool IsInCooldown()
+    {
+        if (HealthStatus is not ProviderHealthStatus.Cooldown and not ProviderHealthStatus.Unhealthy)
+        {
+            return false;
+        }
+
+        return CooldownUntil is null || CooldownUntil > DateTimeOffset.UtcNow;
     }
 }

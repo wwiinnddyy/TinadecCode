@@ -576,6 +576,7 @@ function statusLabel(status: string) {
   if (status === 'ready') return t('settings.statusReady')
   if (status === 'needs_key') return t('settings.statusNeedsKey')
   if (status === 'disabled') return t('settings.statusDisabled')
+  if (status === 'cooldown') return t('settings.statusCooldown')
   return t('settings.statusNotConfigured')
 }
 
@@ -583,6 +584,7 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
   if (status === 'ready') return 'default'
   if (status === 'needs_key' || status === 'not_configured') return 'destructive'
   if (status === 'disabled') return 'secondary'
+  if (status === 'cooldown') return 'outline'
   return 'outline'
 }
 

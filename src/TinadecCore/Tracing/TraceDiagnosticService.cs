@@ -93,7 +93,7 @@ public sealed class TraceDiagnosticService
                 Name = g.Key.Name,
                 Cause = g.Key.Cause,
                 Count = g.Count(),
-                LastSeenAt = g.Max(f => f.EndedAt),
+                LastSeenAt = g.Max(f => f.EndedAt) ?? "",
                 TraceId = "",
                 SpanId = ""
             })
