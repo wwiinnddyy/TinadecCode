@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { AlertTriangle, Archive, CheckCircle2, Layers3 } from '@lucide/vue'
-import type { OrchestrationSnapshotDto } from '../api'
+import { AlertTriangle, Archive, CheckCircle2, Layers3, Wrench } from '@lucide/vue'
+import type { OrchestrationSnapshotDto, ToolExecutionTimelineItemDto } from '../api'
 
 const props = defineProps<{
   snapshot: OrchestrationSnapshotDto | null
+  toolExecutions: ToolExecutionTimelineItemDto[]
 }>()
 
 const hasSnapshot = computed(() => Boolean(props.snapshot?.run))
@@ -42,6 +43,40 @@ const hasSnapshot = computed(() => Boolean(props.snapshot?.run))
           <span>{{ finding.severity }} · {{ finding.category }}</span>
           <p>{{ finding.summary }}</p>
           <small>{{ finding.recommendation }}</small>
+        </div>
+      </article>
+
+      <article class="orchestration-block">
+        <div class="orchestration-block-head">
+          <Wrench :size="15" />
+          <strong>Tool Executions</strong>
+        </div>
+        <div v-if="toolExecutions.length === 0" class="quiet">
+          No tool executions.
+        </div>
+        <div
+          v-for="execution in toolExecutions"
+          :key="execution.id"
+          class="tool-execution-row"
+          :class="{ risky: execution.requires_approval }"
+        >
+          <div class="tool-execution-top">
+            <span>{{ execution.status }}</span>
+            <strong>{{ execution.tool_display_name }}</strong>
+          </div>
+          <p>{{ execution.summary }}</p>
+          <div class="tool-execution-meta">
+            <span>{{ execution.source }}</span>
+            <span>{{ execution.risk }}</span>
+            <span v-if="execution.approval_id">approval {{ execution.approval_id }}</span>
+            <span v-if="execution.step_result_id">step {{ execution.step_result_id }}</span>
+          </div>
+          <div v-if="execution.evidence.length > 0" class="tool-execution-evidence">
+            <small v-for="item in execution.evidence" :key="item">{{ item }}</small>
+          </div>
+          <div class="tool-execution-events">
+            <span v-for="eventType in execution.event_types" :key="eventType">{{ eventType }}</span>
+          </div>
         </div>
       </article>
 

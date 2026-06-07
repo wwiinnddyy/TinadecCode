@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { CodeToolExecuteResultDto, ToolDescriptorDto } from './api';
-import { codeSuiteTools, languageSupportFromTools, projectTemplatesFromResult } from './toolCatalog';
+import type { CodeToolExecuteResultDto, HarnessManifestDto, ToolDescriptorDto, ToolSearchResultDto } from './api';
+import {
+  codeSuiteTools,
+  languageSupportFromTools,
+  manifestTools,
+  projectTemplatesFromResult,
+  sortedAgentLayers,
+  sortedRiskPolicies,
+  sortedToolSearchResults,
+  sortedToolProviders
+} from './toolCatalog';
 
 const tools: ToolDescriptorDto[] = [
   {
@@ -67,6 +76,119 @@ describe('tool catalog helpers', () => {
     expect(projectTemplatesFromResult(result)).toEqual([
       { id: 'nodejs-vite-vue', name: 'Node.js Vite Vue', language: 'nodejs', package_manager: 'npm' },
       { id: 'rust-cli', name: 'Rust CLI', language: 'rust', package_manager: 'cargo' }
+    ]);
+  });
+
+  it('uses Core manifest order for provider, risk, and agent summaries', () => {
+    const manifest: HarnessManifestDto = {
+      runtime: 'tinadec-core-workflow',
+      ownership_model: 'Core owns policy.',
+      agent_layers: [
+        {
+          layer: 'execution',
+          role: 'Passive execution',
+          agent_count: 2,
+          enabled_agent_count: 2,
+          max_parallel_executors: 2,
+          worktree_isolation: true,
+          approval_required: true,
+          agent_types: ['code-writer'],
+          tool_ids: ['apply_patch']
+        },
+        {
+          layer: 'planning',
+          role: 'Active planning',
+          agent_count: 1,
+          enabled_agent_count: 1,
+          max_parallel_executors: 1,
+          worktree_isolation: false,
+          approval_required: false,
+          agent_types: ['meeting'],
+          tool_ids: ['prompt_context_resolve']
+        }
+      ],
+      tool_providers: [
+        {
+          source: 'codex-rust',
+          display_name: 'Codex Rust Primitives',
+          layer: 'native-glue',
+          status: 'mixed',
+          tool_count: 2,
+          active_tool_count: 1,
+          future_tool_count: 1,
+          approval_required_count: 1,
+          read_only_count: 1,
+          capability_prefixes: ['file']
+        },
+        {
+          source: 'core',
+          display_name: 'Tinadec Core',
+          layer: 'core',
+          status: 'active',
+          tool_count: 1,
+          active_tool_count: 1,
+          future_tool_count: 0,
+          approval_required_count: 0,
+          read_only_count: 1,
+          capability_prefixes: ['prompt']
+        }
+      ],
+      tool_risks: [
+        {
+          risk: 'shell',
+          tool_count: 1,
+          requires_human_checkpoint: true,
+          policy_summary: 'approval'
+        },
+        {
+          risk: 'read-only',
+          tool_count: 2,
+          requires_human_checkpoint: false,
+          policy_summary: 'automatic'
+        }
+      ],
+      tools,
+      design_notes: []
+    };
+
+    expect(sortedAgentLayers(manifest).map((layer) => layer.layer)).toEqual(['planning', 'execution']);
+    expect(sortedToolProviders(manifest).map((provider) => provider.source)).toEqual(['core', 'codex-rust']);
+    expect(sortedRiskPolicies(manifest).map((risk) => risk.risk)).toEqual(['read-only', 'shell']);
+    expect(manifestTools(manifest).map((tool) => tool.id)).toEqual(['language_runtime_probe', 'git_worktree_manager', 'read_file']);
+  });
+
+  it('keeps Core search result ordering deterministic when scores tie', () => {
+    const results: ToolSearchResultDto[] = [
+      {
+        tool: tools[2],
+        score: 120,
+        matched_fields: ['capabilities'],
+        provider_layer: 'native-glue',
+        requires_human_checkpoint: false,
+        approval_summary: 'Automatic'
+      },
+      {
+        tool: tools[0],
+        score: 120,
+        matched_fields: ['capabilities'],
+        provider_layer: 'tool-layer',
+        requires_human_checkpoint: false,
+        approval_summary: 'Automatic'
+      },
+      {
+        tool: tools[1],
+        score: 260,
+        matched_fields: ['id'],
+        provider_layer: 'tool-layer',
+        requires_human_checkpoint: true,
+        approval_summary: 'Requires approval'
+      }
+    ];
+
+    expect(sortedToolSearchResults(results).map((result) => result.tool.id)).toEqual([
+      'git_worktree_manager',
+      'language_runtime_probe',
+      'read_file'
     ]);
   });
 });

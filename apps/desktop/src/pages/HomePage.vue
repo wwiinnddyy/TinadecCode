@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { api, type ApprovalDto, type DoctorReportDto, type EventEnvelope, type MessageDto, type ModelSettingsDto, type OrchestrationSnapshotDto, type ProjectDto, type SessionDto } from '../api'
+import { api, type ApprovalDto, type DoctorReportDto, type EventEnvelope, type MessageDto, type ModelSettingsDto, type OrchestrationSnapshotDto, type ProjectDto, type SessionDto, type ToolExecutionTimelineItemDto } from '../api'
 import { basenameFromPath } from '../format'
 import AppSidebar from '../components/AppSidebar.vue'
 import AppHeader from '../components/AppHeader.vue'
@@ -21,6 +21,7 @@ const events = ref<EventEnvelope[]>([])
 const doctor = ref<DoctorReportDto | null>(null)
 const modelSettings = ref<ModelSettingsDto | null>(null)
 const orchestration = ref<OrchestrationSnapshotDto | null>(null)
+const toolExecutions = ref<ToolExecutionTimelineItemDto[]>([])
 
 const selectedProjectId = ref<string | null>(null)
 const selectedSessionId = ref<string | null>(null)
@@ -107,17 +108,20 @@ async function loadMessagesAndApprovals() {
     messages.value = []
     approvals.value = []
     orchestration.value = null
+    toolExecutions.value = []
     return
   }
 
-  const [messageList, approvalList, orchestrationSnapshot] = await Promise.all([
+  const [messageList, approvalList, orchestrationSnapshot, toolTimeline] = await Promise.all([
     api.listMessages(selectedSessionId.value),
     api.listApprovals(selectedSessionId.value),
     api.getOrchestrationSnapshot(selectedSessionId.value),
+    api.listToolExecutions(selectedSessionId.value, { limit: 12 }),
   ])
   messages.value = messageList
   approvals.value = approvalList
   orchestration.value = orchestrationSnapshot
+  toolExecutions.value = toolTimeline
 }
 
 async function openProject() {
@@ -311,6 +315,7 @@ onUnmounted(() => {
         :events="recentEvents"
         :doctor="doctor"
         :orchestration="orchestration"
+        :tool-executions="toolExecutions"
         :shell-command="shellCommand"
         :busy="busy"
         :selected-session-id="selectedSessionId"

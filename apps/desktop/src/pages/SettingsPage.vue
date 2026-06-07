@@ -23,6 +23,7 @@ import {
   Palette,
   Plus,
   Save,
+  Search,
   Server,
   Settings2,
   ShieldCheck,
@@ -48,7 +49,9 @@ import {
   type PromptFragmentDto,
   type SavePromptFragmentInput,
   type SaveModelProviderInstanceInput,
-  type ToolDescriptorDto
+  type HarnessManifestDto,
+  type ToolDescriptorDto,
+  type ToolSearchResultDto
 } from '../api'
 import {
   PROVIDER_TEMPLATES,
@@ -57,7 +60,17 @@ import {
   type ProviderTemplate,
   type ProviderCategory
 } from '../providerTemplates'
-import { codeSuiteTools, languageSupportFromTools, projectTemplatesFromResult, type ProjectTemplateSummary } from '../toolCatalog'
+import {
+  codeSuiteTools,
+  languageSupportFromTools,
+  manifestTools,
+  projectTemplatesFromResult,
+  sortedAgentLayers,
+  sortedRiskPolicies,
+  sortedToolSearchResults,
+  sortedToolProviders,
+  type ProjectTemplateSummary
+} from '../toolCatalog'
 import { UiButton, UiInput, UiCard, UiBadge, UiLabel, UiSwitch } from '@/components/ui'
 import AgentTopologyCanvas from '@/components/AgentTopologyCanvas.vue'
 
@@ -109,6 +122,8 @@ const agentModes = ref<AgentModeDto[]>([])
 const agents = ref<AgentProfileDto[]>([])
 const agentCandidates = ref<AgentCandidateDto[]>([])
 const availableTools = ref<ToolDescriptorDto[]>([])
+const harnessManifest = ref<HarnessManifestDto | null>(null)
+const toolSearchResults = ref<ToolSearchResultDto[]>([])
 const promptFragments = ref<PromptFragmentDto[]>([])
 const promptPreview = ref<PromptContextPreviewDto | null>(null)
 const projectTemplates = ref<ProjectTemplateSummary[]>([])
@@ -138,6 +153,10 @@ const promptPreviewMode = ref('')
 const promptPreviewSessionId = ref('')
 const promptPreviewRunId = ref('')
 const promptPreviewUserContent = ref('')
+const toolDiscoveryQuery = ref('')
+const toolDiscoverySource = ref('all')
+const toolDiscoveryRisk = ref('all')
+const toolDiscoveryLoading = ref(false)
 const promptForm = reactive({
   id: '',
   key: '',
@@ -215,9 +234,39 @@ const configuringAgent = computed(() =>
 const planningAgents = computed(() => agents.value.filter((agent) => agent.layer === 'planning'))
 const executionAgents = computed(() => agents.value.filter((agent) => agent.layer === 'execution'))
 const configuredAgentMode = computed(() => agentModes.value.find((mode) => mode.id === configuringAgent.value?.mode) ?? null)
-const codeSuiteToolList = computed(() => codeSuiteTools(availableTools.value))
-const codexPrimitiveTools = computed(() => availableTools.value.filter((tool) => tool.source === 'codex-rust'))
-const supportedLanguages = computed(() => languageSupportFromTools(availableTools.value))
+const gitManagerAgent = computed(() =>
+  agents.value.find((agent) => agent.id === 'executor_git_manager') ??
+  agents.value.find((agent) => agent.agent_type === 'git-manager') ??
+  null
+)
+const gitManagerMode = computed(() => agentModes.value.find((mode) => mode.id === gitManagerAgent.value?.mode) ?? null)
+const gitManagerTools = computed(() => {
+  const toolIds = gitManagerAgent.value?.allowed_tools ?? []
+  return toolIds
+    .map((toolId) => availableTools.value.find((tool) => tool.id === toolId))
+    .filter((tool): tool is ToolDescriptorDto => Boolean(tool))
+})
+const gitManagerCapabilities = computed(() =>
+  (gitManagerAgent.value?.capabilities ?? []).filter((capability) =>
+    capability.startsWith('git.') ||
+    capability === 'handoff.explain' ||
+    capability === 'conflict.resolve'
+  )
+)
+const manifestToolList = computed(() => manifestTools(harnessManifest.value, availableTools.value))
+const manifestProviders = computed(() => sortedToolProviders(harnessManifest.value))
+const manifestAgentLayers = computed(() => sortedAgentLayers(harnessManifest.value))
+const manifestRiskPolicies = computed(() => sortedRiskPolicies(harnessManifest.value))
+const codeSuiteToolList = computed(() => codeSuiteTools(manifestToolList.value))
+const codexPrimitiveTools = computed(() => manifestToolList.value.filter((tool) => tool.source === 'codex-rust'))
+const supportedLanguages = computed(() => languageSupportFromTools(manifestToolList.value))
+const toolSourceOptions = computed(() =>
+  Array.from(new Set(manifestToolList.value.map((tool) => tool.source))).sort()
+)
+const toolRiskOptions = computed(() =>
+  Array.from(new Set(manifestToolList.value.map((tool) => tool.risk))).sort()
+)
+const sortedToolDiscoveryResults = computed(() => sortedToolSearchResults(toolSearchResults.value))
 const promptCategories = computed(() =>
   Array.from(new Set(promptFragments.value.map((fragment) => fragment.category))).sort()
 )
@@ -369,8 +418,25 @@ async function loadAgentCenter() {
     agentModes.value = modes
     agents.value = agentList
     agentCandidates.value = candidates
-    // Tools list is non-critical — load independently so a missing Core doesn't block agent display
-    api.listTools().then((tools) => { availableTools.value = tools }).catch(() => { availableTools.value = [] })
+    // Harness manifest is non-critical: fall back to the legacy tool list for older Core builds.
+    api.getHarnessManifest()
+      .then((manifest) => {
+        harnessManifest.value = manifest
+        availableTools.value = manifest.tools
+        void loadToolDiscovery()
+      })
+      .catch(() => {
+        harnessManifest.value = null
+        api.listTools()
+          .then((tools) => {
+            availableTools.value = tools
+            void loadToolDiscovery()
+          })
+          .catch(() => {
+            availableTools.value = []
+            toolSearchResults.value = []
+          })
+      })
     api.executeCodeTool('project_templates')
       .then((result) => { projectTemplates.value = projectTemplatesFromResult(result) })
       .catch(() => { projectTemplates.value = [] })
@@ -379,6 +445,22 @@ async function loadAgentCenter() {
     }
   } finally {
     loading.value = false
+  }
+}
+
+async function loadToolDiscovery() {
+  toolDiscoveryLoading.value = true
+  try {
+    toolSearchResults.value = await api.searchTools({
+      query: toolDiscoveryQuery.value.trim() || undefined,
+      source: toolDiscoverySource.value === 'all' ? undefined : toolDiscoverySource.value,
+      risk: toolDiscoveryRisk.value === 'all' ? undefined : toolDiscoveryRisk.value,
+      limit: 10
+    })
+  } catch {
+    toolSearchResults.value = []
+  } finally {
+    toolDiscoveryLoading.value = false
   }
 }
 
@@ -975,6 +1057,69 @@ loadPromptContextCenter()
             </div>
           </div>
 
+          <section v-if="gitManagerAgent" class="git-manager-panel">
+            <div class="git-manager-summary">
+              <div class="agent-card-icon execution git-manager-icon">
+                <Terminal :size="18" />
+              </div>
+              <div class="git-manager-copy">
+                <div class="git-manager-title-row">
+                  <h3>{{ gitManagerAgent.name }}</h3>
+                  <UiBadge :variant="gitManagerAgent.enabled ? 'default' : 'secondary'">
+                    {{ gitManagerAgent.enabled ? t('settings.defaultEnabled') : t('settings.statusDisabled') }}
+                  </UiBadge>
+                </div>
+                <p>{{ t('settings.gitManagerSubtitle') }}</p>
+              </div>
+              <UiButton variant="outline" size="sm" @click="openAgentConfig(gitManagerAgent)">
+                <Settings2 :size="14" />
+                <span>{{ t('settings.gitManagerConfigure') }}</span>
+              </UiButton>
+            </div>
+
+            <div class="git-manager-grid">
+              <div class="git-manager-metric">
+                <ShieldCheck :size="16" />
+                <div>
+                  <span>{{ t('settings.gitManagerApprovalTitle') }}</span>
+                  <strong>{{ t('settings.approvalGateOn') }}</strong>
+                  <p>{{ t('settings.gitManagerApprovalBody') }}</p>
+                </div>
+              </div>
+              <div class="git-manager-metric">
+                <Workflow :size="16" />
+                <div>
+                  <span>{{ t('settings.gitManagerRouteTitle') }}</span>
+                  <strong>{{ agentRouteProvider(gitManagerAgent)?.display_name ?? t('settings.noProvider') }}</strong>
+                  <p>{{ gitManagerMode?.display_name ?? agentModeLabel(gitManagerAgent.mode) }} · {{ gitManagerAgent.model_route_purpose }}</p>
+                </div>
+              </div>
+              <div class="git-manager-metric">
+                <FileText :size="16" />
+                <div>
+                  <span>{{ t('settings.gitManagerHandoffTitle') }}</span>
+                  <strong>{{ t('settings.gitManagerHandoffName') }}</strong>
+                  <p>{{ t('settings.gitManagerHandoffBody') }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="git-manager-tool-row">
+              <div>
+                <span>{{ t('settings.agentTools') }}</span>
+                <div class="model-capability-row compact">
+                  <span v-for="tool in gitManagerTools" :key="tool.id">{{ tool.display_name }}</span>
+                </div>
+              </div>
+              <div>
+                <span>{{ t('settings.gitManagerCapabilitiesTitle') }}</span>
+                <div class="model-capability-row compact">
+                  <span v-for="capability in gitManagerCapabilities" :key="capability">{{ capability }}</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <div v-if="agentViewMode === 'topology'" class="agent-topology-section">
             <AgentTopologyCanvas
               :agents="agents"
@@ -1497,6 +1642,119 @@ loadPromptContextCenter()
               <span>{{ t('settings.refresh') }}</span>
             </UiButton>
           </div>
+
+          <div v-if="harnessManifest" class="provider-status-note harness-manifest-note">
+            <ShieldCheck :size="14" />
+            <span>{{ harnessManifest.runtime }} · {{ harnessManifest.ownership_model }}</span>
+          </div>
+
+          <div v-if="manifestAgentLayers.length > 0" class="model-section-header">
+            <h3>{{ t('settings.harnessAgentLayers') }}</h3>
+            <UiBadge variant="outline">{{ manifestAgentLayers.length }}</UiBadge>
+          </div>
+
+          <div v-if="manifestAgentLayers.length > 0" class="harness-manifest-grid">
+            <div v-for="layer in manifestAgentLayers" :key="layer.layer" class="harness-manifest-panel">
+              <div class="harness-panel-head">
+                <span class="harness-panel-title">{{ layer.layer }}</span>
+                <UiBadge :variant="layer.approval_required ? 'secondary' : 'outline'">
+                  {{ layer.enabled_agent_count }}/{{ layer.agent_count }}
+                </UiBadge>
+              </div>
+              <p class="harness-panel-meta">{{ layer.role }}</p>
+              <div class="harness-panel-stats">
+                <span>{{ t('settings.maxParallel') }} {{ layer.max_parallel_executors }}</span>
+                <span>{{ layer.worktree_isolation ? t('settings.worktreeIsolated') : t('settings.sharedWorkspace') }}</span>
+              </div>
+              <div class="model-capability-row compact">
+                <span v-for="agentType in layer.agent_types" :key="agentType">{{ agentType }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="manifestProviders.length > 0" class="model-section-header">
+            <h3>{{ t('settings.toolProviders') }}</h3>
+            <UiBadge variant="outline">{{ manifestProviders.length }}</UiBadge>
+          </div>
+
+          <div v-if="manifestProviders.length > 0" class="harness-manifest-grid">
+            <div v-for="provider in manifestProviders" :key="provider.source" class="harness-manifest-panel">
+              <div class="harness-panel-head">
+                <span class="harness-panel-title">{{ provider.display_name }}</span>
+                <UiBadge :variant="provider.status === 'active' ? 'secondary' : 'outline'">{{ provider.status }}</UiBadge>
+              </div>
+              <p class="harness-panel-meta">{{ provider.layer }} · {{ provider.source }}</p>
+              <div class="harness-panel-stats">
+                <span>{{ t('settings.toolsCount') }} {{ provider.tool_count }}</span>
+                <span>{{ t('settings.approvalCount') }} {{ provider.approval_required_count }}</span>
+                <span>{{ t('settings.futureCount') }} {{ provider.future_tool_count }}</span>
+              </div>
+              <div class="model-capability-row compact">
+                <span v-for="prefix in provider.capability_prefixes" :key="prefix">{{ prefix }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="manifestRiskPolicies.length > 0" class="model-section-header">
+            <h3>{{ t('settings.riskPolicies') }}</h3>
+            <UiBadge variant="outline">{{ manifestRiskPolicies.length }}</UiBadge>
+          </div>
+
+          <div v-if="manifestRiskPolicies.length > 0" class="agent-tool-grid manifest-risk-row">
+            <button
+              v-for="risk in manifestRiskPolicies"
+              :key="risk.risk"
+              class="agent-tool-chip"
+              :class="{ risky: risk.requires_human_checkpoint }"
+            >
+              <span class="agent-tool-name">{{ risk.risk }}</span>
+              <span class="agent-tool-risk">{{ risk.tool_count }} · {{ risk.policy_summary }}</span>
+            </button>
+          </div>
+
+          <div class="model-section-header">
+            <h3>{{ t('settings.toolDiscovery') }}</h3>
+            <UiBadge variant="outline">{{ sortedToolDiscoveryResults.length }}</UiBadge>
+          </div>
+
+          <div class="tool-discovery-controls">
+            <UiInput
+              v-model="toolDiscoveryQuery"
+              :placeholder="t('settings.toolDiscoveryPlaceholder')"
+              @keyup.enter="loadToolDiscovery"
+            />
+            <select v-model="toolDiscoverySource" class="settings-select" @change="loadToolDiscovery">
+              <option value="all">{{ t('settings.allSources') }}</option>
+              <option v-for="source in toolSourceOptions" :key="source" :value="source">{{ source }}</option>
+            </select>
+            <select v-model="toolDiscoveryRisk" class="settings-select" @change="loadToolDiscovery">
+              <option value="all">{{ t('settings.allRisks') }}</option>
+              <option v-for="risk in toolRiskOptions" :key="risk" :value="risk">{{ risk }}</option>
+            </select>
+            <UiButton size="sm" :disabled="toolDiscoveryLoading" @click="loadToolDiscovery">
+              <Search :size="14" />
+              <span>{{ t('settings.search') }}</span>
+            </UiButton>
+          </div>
+
+          <div class="tool-discovery-grid">
+            <button
+              v-for="result in sortedToolDiscoveryResults"
+              :key="result.tool.id"
+              class="tool-discovery-card"
+              :class="{ risky: result.requires_human_checkpoint }"
+            >
+              <span class="tool-discovery-title">{{ result.tool.display_name }}</span>
+              <span class="tool-discovery-meta">{{ result.tool.source }} · {{ result.provider_layer }} · {{ result.tool.risk }}</span>
+              <span class="tool-discovery-meta">{{ result.approval_summary }}</span>
+              <span class="tool-discovery-fields">
+                {{ t('settings.matchedFields') }} {{ result.matched_fields.join(', ') }}
+              </span>
+            </button>
+          </div>
+          <p v-if="!toolDiscoveryLoading && sortedToolDiscoveryResults.length === 0" class="quiet">
+            {{ t('settings.noToolSearchResults') }}
+          </p>
 
           <div class="model-section-header">
             <h3>{{ t('settings.codeToolSuite') }}</h3>

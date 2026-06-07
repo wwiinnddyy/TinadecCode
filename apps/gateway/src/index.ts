@@ -121,6 +121,15 @@ const app = new Elysia({ adapter: node() })
     setStatus(set, result.status);
     return result.data;
   })
+  .get('/api/v1/sessions/:sessionId/tool-executions', async ({ params, query, set }) => {
+    const search = new URLSearchParams();
+    if (query.run_id) search.set('runId', String(query.run_id));
+    if (query.limit) search.set('limit', String(query.limit));
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    const result = await proxyJson(`/api/v1/sessions/${params.sessionId}/tool-executions${suffix}`);
+    setStatus(set, result.status);
+    return result.data;
+  })
   .get('/api/v1/sessions/:sessionId/runs', async ({ params, set }) => {
     const result = await proxyJson(`/api/v1/sessions/${params.sessionId}/runs`);
     setStatus(set, result.status);
@@ -187,8 +196,25 @@ const app = new Elysia({ adapter: node() })
     tool_ids: listCodeToolIds(),
     tools: listCodeToolSpecs()
   }))
+  .get('/api/v1/tools/search', async ({ query, set }) => {
+    const params = new URLSearchParams();
+    if (query.query) params.set('query', String(query.query));
+    if (query.domain) params.set('domain', String(query.domain));
+    if (query.source) params.set('source', String(query.source));
+    if (query.risk) params.set('risk', String(query.risk));
+    if (query.limit) params.set('limit', String(query.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    const result = await proxyJson(`/api/v1/tools/search${suffix}`);
+    setStatus(set, result.status);
+    return result.data;
+  })
   .get('/api/v1/tools', async ({ set }) => {
     const result = await proxyJson('/api/v1/tools');
+    setStatus(set, result.status);
+    return result.data;
+  })
+  .get('/api/v1/harness/manifest', async ({ set }) => {
+    const result = await proxyJson('/api/v1/harness/manifest');
     setStatus(set, result.status);
     return result.data;
   })

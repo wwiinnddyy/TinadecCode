@@ -59,10 +59,14 @@ public sealed class AgentWorkflowRuntime(IToolRegistry tools) : IAgentWorkflowRu
             requested.Add("sandbox_exec");
         }
 
-        // Git manager needs sandbox for git commands
+        // Git manager needs Git tooling plus read-only context for handoff notes.
         if (assignment.AgentType is "git-manager")
         {
+            requested.Add("git_worktree_manager");
             requested.Add("sandbox_exec");
+            requested.Add("review_format");
+            requested.Add("read_file");
+            requested.Add("grep_content");
         }
 
         // Code writer needs apply_patch and sandbox

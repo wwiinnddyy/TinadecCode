@@ -36,6 +36,9 @@ builder.Services.AddSingleton<ICapabilityProvider, PromptContextCapabilityProvid
 builder.Services.AddSingleton<IRuntimeKernelAdapter, CodexRuntimeKernelAdapter>();
 builder.Services.AddSingleton<ICapabilityPolicy, CapabilityPolicyService>();
 builder.Services.AddSingleton<IToolRegistry, ToolRegistryService>();
+builder.Services.AddSingleton<HarnessManifestService>();
+builder.Services.AddSingleton<ToolSearchService>();
+builder.Services.AddSingleton<ToolExecutionTimelineService>();
 builder.Services.AddSingleton<IAgentWorkflowRuntime, AgentWorkflowRuntime>();
 builder.Services.AddSingleton<IModelRouteResolver, ModelRouteResolver>();
 builder.Services.AddSingleton<IModelCredentialResolver, ModelCredentialResolver>();
@@ -167,6 +170,15 @@ app.MapPost("/api/v1/sessions/{sessionId}/messages", async (
 app.MapGet("/api/v1/sessions/{sessionId}/orchestration", (string sessionId, CoreStore coreStore) =>
 {
     return Results.Ok(coreStore.GetOrchestrationSnapshot(sessionId));
+});
+
+app.MapGet("/api/v1/sessions/{sessionId}/tool-executions", (
+    string sessionId,
+    string? runId,
+    int? limit,
+    ToolExecutionTimelineService timeline) =>
+{
+    return Results.Ok(timeline.ListForSession(sessionId, runId, limit));
 });
 
 app.MapGet("/api/v1/sessions/{sessionId}/runs", (string sessionId, CoreStore coreStore) =>
@@ -560,7 +572,20 @@ app.MapPost("/api/v1/acp/adapters/{adapterId}/probe", (string adapterId, CoreSto
 
 app.MapGet("/api/v1/agent-modes", (CoreStore coreStore) => Results.Ok(coreStore.ListAgentModes()));
 
+app.MapGet("/api/v1/tools/search", (
+    string? query,
+    string? domain,
+    string? source,
+    string? risk,
+    int? limit,
+    ToolSearchService search) =>
+{
+    return Results.Ok(search.Search(query, domain, source, risk, limit));
+});
+
 app.MapGet("/api/v1/tools", (IToolRegistry tools) => Results.Ok(tools.ListTools()));
+
+app.MapGet("/api/v1/harness/manifest", (HarnessManifestService manifest) => Results.Ok(manifest.Build()));
 
 app.MapGet("/api/v1/prompt-fragments", (
     string? scope,

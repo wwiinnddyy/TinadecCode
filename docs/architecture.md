@@ -15,6 +15,21 @@ Core is the only state authority. Gateway and Desktop must not keep session stat
 - TinadecCore runtime: `http://127.0.0.1:48731`
 - Vite renderer: `http://127.0.0.1:5173`
 
+## Harness And Tool Layer APIs
+
+Core owns the agent harness model and Tool-layer policy semantics. Gateway proxies these endpoints, and Desktop renders them without recomputing risk or provider-layer meaning.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/v1/harness/manifest` | Core-owned summary of planning/execution agent layers, Tool-layer providers, tool risk policy, and registered tool descriptors. |
+| `GET /api/v1/tools` | Raw Core tool descriptor list. |
+| `GET /api/v1/tools/search` | Core-owned searchable tool discovery with matched metadata fields, provider layer, score, and human-checkpoint summary. Supports `query`, `domain`, `source`, `risk`, and `limit`. |
+| `GET /api/v1/sessions/{sessionId}/tool-executions` | Core-owned tool execution timeline built from tool execution events and step-result evidence. Supports `runId` and `limit`. |
+
+## Built-In Execution Subagents
+
+`executor_git_manager` is the Git Manager Subagent in the execution layer. Git-related goals such as branch review, commit preparation, push readiness, worktree management, merge/rebase guidance, and user-facing handoff notes can route to it. It can explain repository state, but Git mutation and push flows must remain approval-gated through Core-governed tools such as `git_worktree_manager`.
+
 ## Event Envelope
 
 All runtime events use:

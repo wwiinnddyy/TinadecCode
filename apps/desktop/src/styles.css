@@ -932,6 +932,97 @@ button {
   font-size: 12px;
 }
 
+.git-manager-panel {
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.git-manager-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.git-manager-icon {
+  width: 38px;
+  height: 38px;
+}
+
+.git-manager-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.git-manager-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.git-manager-title-row h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.git-manager-copy p,
+.git-manager-metric p {
+  margin: 3px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.git-manager-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.git-manager-metric {
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+
+.git-manager-metric svg {
+  flex: 0 0 auto;
+  color: var(--accent-primary);
+}
+
+.git-manager-metric span,
+.git-manager-tool-row > div > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.git-manager-metric strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.git-manager-tool-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
 .agent-config-section {
   margin-top: 16px;
   padding: 12px;
@@ -1004,6 +1095,17 @@ button {
   border-radius: 3px;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
+}
+
+.manifest-risk-row .agent-tool-chip {
+  align-items: flex-start;
+  max-width: 360px;
+}
+
+.manifest-risk-row .agent-tool-risk {
+  white-space: normal;
+  text-align: left;
+  line-height: 1.4;
 }
 
 .agent-capability-list {
@@ -3159,7 +3261,8 @@ label {
 .orchestration-block p,
 .orchestration-finding p,
 .context-pack-row p,
-.step-result-row p {
+.step-result-row p,
+.tool-execution-row p {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.4;
@@ -3168,7 +3271,9 @@ label {
 
 .task-node-meta,
 .task-node-agents,
-.orchestration-tags {
+.orchestration-tags,
+.tool-execution-meta,
+.tool-execution-events {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -3176,7 +3281,9 @@ label {
 
 .task-node-meta span,
 .task-node-agents span,
-.orchestration-tags span {
+.orchestration-tags span,
+.tool-execution-meta span,
+.tool-execution-events span {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-muted);
   border-radius: 999px;
@@ -3216,7 +3323,8 @@ label {
 
 .orchestration-finding,
 .context-pack-row,
-.step-result-row {
+.step-result-row,
+.tool-execution-row {
   background: var(--bg-secondary);
   border: 1px solid var(--border-muted);
   border-radius: 8px;
@@ -3225,11 +3333,45 @@ label {
   padding: 9px;
 }
 
+.tool-execution-row.risky {
+  border-color: rgba(248, 81, 73, 0.36);
+}
+
+.tool-execution-top {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+}
+
 .orchestration-finding span,
-.step-result-row span {
+.step-result-row span,
+.tool-execution-top span {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 700;
+}
+
+.tool-execution-top strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-execution-meta,
+.tool-execution-events,
+.tool-execution-evidence {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.tool-execution-evidence {
+  display: grid;
+  gap: 3px;
+  line-height: 1.35;
 }
 
 .orchestration-finding small {
@@ -3871,6 +4013,148 @@ label {
   font-size: 12px;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
+}
+
+.harness-manifest-note {
+  align-items: flex-start;
+  line-height: 1.45;
+}
+
+.harness-manifest-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.harness-manifest-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  min-width: 0;
+}
+
+.harness-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.harness-panel-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.harness-panel-meta {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.harness-panel-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.harness-panel-stats span {
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tool-discovery-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(128px, 150px) minmax(128px, 150px) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.tool-discovery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.tool-discovery-card {
+  display: grid;
+  gap: 5px;
+  min-height: 116px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: inherit;
+  text-align: left;
+}
+
+.tool-discovery-card.risky {
+  border-color: rgba(248, 81, 73, 0.36);
+}
+
+.tool-discovery-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-discovery-meta {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.tool-discovery-fields {
+  align-self: end;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (max-width: 760px) {
+  .tool-discovery-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .git-manager-tool-row {
+    grid-template-columns: 1fr;
+  }
+
+  .git-manager-summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .git-manager-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.model-capability-row.compact {
+  gap: 4px;
+  margin-bottom: 0;
+}
+
+.model-capability-row.compact span {
+  font-size: 10px;
 }
 
 .provider-cap-tag {

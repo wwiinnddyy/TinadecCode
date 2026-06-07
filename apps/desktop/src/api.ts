@@ -367,6 +367,27 @@ export interface StepResultDto {
   created_at: string;
 }
 
+export interface ToolExecutionTimelineItemDto {
+  id: string;
+  run_id: string;
+  session_id: string;
+  tool_id: string;
+  tool_display_name: string;
+  source: string;
+  risk: string;
+  requires_approval: boolean;
+  status: string;
+  approval_id?: string | null;
+  step_result_id?: string | null;
+  summary: string;
+  evidence: string[];
+  requested_at: string;
+  updated_at: string;
+  requested_seq: number;
+  updated_seq: number;
+  event_types: string[];
+}
+
 export interface ContextPackDto {
   id: string;
   run_id: string;
@@ -400,6 +421,57 @@ export interface ToolDescriptorDto {
   requires_approval: boolean;
   execute_endpoint: string;
   capabilities: string[];
+}
+
+export interface ToolSearchResultDto {
+  tool: ToolDescriptorDto;
+  score: number;
+  matched_fields: string[];
+  provider_layer: string;
+  requires_human_checkpoint: boolean;
+  approval_summary: string;
+}
+
+export interface AgentLayerManifestDto {
+  layer: string;
+  role: string;
+  agent_count: number;
+  enabled_agent_count: number;
+  max_parallel_executors: number;
+  worktree_isolation: boolean;
+  approval_required: boolean;
+  agent_types: string[];
+  tool_ids: string[];
+}
+
+export interface ToolProviderManifestDto {
+  source: string;
+  display_name: string;
+  layer: string;
+  status: string;
+  tool_count: number;
+  active_tool_count: number;
+  future_tool_count: number;
+  approval_required_count: number;
+  read_only_count: number;
+  capability_prefixes: string[];
+}
+
+export interface ToolRiskManifestDto {
+  risk: string;
+  tool_count: number;
+  requires_human_checkpoint: boolean;
+  policy_summary: string;
+}
+
+export interface HarnessManifestDto {
+  runtime: string;
+  ownership_model: string;
+  agent_layers: AgentLayerManifestDto[];
+  tool_providers: ToolProviderManifestDto[];
+  tool_risks: ToolRiskManifestDto[];
+  tools: ToolDescriptorDto[];
+  design_notes: string[];
 }
 
 export interface CodeToolExecuteResultDto {
@@ -509,6 +581,13 @@ export const api = {
     body: JSON.stringify({ content })
   }),
   getOrchestrationSnapshot: (sessionId: string) => request<OrchestrationSnapshotDto>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/orchestration`),
+  listToolExecutions: (sessionId: string, params: { run_id?: string; limit?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.run_id) search.set('run_id', params.run_id);
+    if (params.limit !== undefined) search.set('limit', String(params.limit));
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    return request<ToolExecutionTimelineItemDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/tool-executions${suffix}`);
+  },
   listRuns: (sessionId: string) => request<OrchestrationRunDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/runs`),
   listTaskNodes: (sessionId: string) => request<TaskNodeDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/task-nodes`),
   listContextPacks: (sessionId: string) => request<ContextPackDto[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/context-packs`),
@@ -588,6 +667,17 @@ export const api = {
   listAgentModes: () => request<AgentModeDto[]>('/api/v1/agent-modes'),
   listAgents: () => request<AgentProfileDto[]>('/api/v1/agents'),
   listTools: () => request<ToolDescriptorDto[]>('/api/v1/tools'),
+  searchTools: (params: { query?: string; domain?: string; source?: string; risk?: string; limit?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.query) search.set('query', params.query);
+    if (params.domain) search.set('domain', params.domain);
+    if (params.source) search.set('source', params.source);
+    if (params.risk) search.set('risk', params.risk);
+    if (params.limit !== undefined) search.set('limit', String(params.limit));
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    return request<ToolSearchResultDto[]>(`/api/v1/tools/search${suffix}`);
+  },
+  getHarnessManifest: () => request<HarnessManifestDto>('/api/v1/harness/manifest'),
   listPromptFragments: (params: { scope?: string; target_agent_id?: string; category?: string; enabled?: boolean } = {}) => {
     const search = new URLSearchParams();
     if (params.scope) search.set('scope', params.scope);

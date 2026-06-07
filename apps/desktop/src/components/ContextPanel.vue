@@ -7,7 +7,7 @@ import DiffTab from './DiffTab.vue'
 import EventsTab from './EventsTab.vue'
 import DoctorTab from './DoctorTab.vue'
 import OrchestrationTab from './OrchestrationTab.vue'
-import type { ApprovalDto, EventEnvelope, DoctorReportDto, OrchestrationSnapshotDto } from '../api'
+import type { ApprovalDto, EventEnvelope, DoctorReportDto, OrchestrationSnapshotDto, ToolExecutionTimelineItemDto } from '../api'
 
 const { t } = useI18n()
 
@@ -43,6 +43,7 @@ defineProps<{
   events: EventEnvelope[]
   doctor: DoctorReportDto | null
   orchestration: OrchestrationSnapshotDto | null
+  toolExecutions: ToolExecutionTimelineItemDto[]
   shellCommand: string
   busy: boolean
   selectedSessionId: string | null
@@ -118,7 +119,7 @@ const toolbarItems = [
           @decide-approval="(a, d) => emit('decide-approval', a, d)"
           @update:shell-command="emit('update:shellCommand', $event)"
         />
-        <OrchestrationTab v-if="activeTab === 'tasks'" :snapshot="orchestration" />
+        <OrchestrationTab v-if="activeTab === 'tasks'" :snapshot="orchestration" :tool-executions="toolExecutions" />
         <DiffTab v-if="activeTab === 'diff'" />
         <EventsTab v-if="activeTab === 'events'" :events="events" />
         <DoctorTab v-if="activeTab === 'doctor'" :doctor="doctor" />

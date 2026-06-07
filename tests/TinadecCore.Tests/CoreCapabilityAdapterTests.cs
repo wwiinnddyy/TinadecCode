@@ -49,6 +49,108 @@ public sealed class CoreCapabilityAdapterTests
     }
 
     [Fact]
+    public void HarnessManifestKeepsDualLayerAgentsAndToolProvidersCoreOwned()
+    {
+        var store = new CoreStore(Path.Combine(Path.GetTempPath(), $"tinadec-harness-manifest-{Guid.NewGuid():N}.db"));
+        store.Initialize();
+        var service = new HarnessManifestService(store, new ToolRegistryService());
+
+        var manifest = service.Build();
+
+        Assert.Equal(AgentWorkflowRuntime.RuntimeName, manifest.Runtime);
+        Assert.Contains("Core owns orchestration", manifest.OwnershipModel);
+        Assert.Contains(manifest.AgentLayers, layer => layer.Layer == "planning" && layer.Role.Contains("planning", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(manifest.AgentLayers, layer => layer.Layer == "execution" && layer.Role.Contains("execution", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(manifest.ToolProviders, provider => provider.Source == "core" && provider.Layer == "core");
+        Assert.Contains(manifest.ToolProviders, provider => provider.Source == "code" && provider.Layer == "tool-layer" && provider.ApprovalRequiredCount > 0);
+        Assert.Contains(manifest.ToolProviders, provider => provider.Source == "codex-rust" && provider.Layer == "native-glue");
+        Assert.Contains(manifest.ToolRisks, risk => risk.Risk == "read-only" && !risk.RequiresHumanCheckpoint);
+        Assert.Contains(manifest.ToolRisks, risk => risk.Risk == "workspace-write" && risk.RequiresHumanCheckpoint);
+        Assert.Contains(manifest.DesignNotes, note => note.Contains("not a second orchestration runtime", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ToolSearchRanksMetadataAndPreservesCoreRiskPolicy()
+    {
+        var service = new ToolSearchService(new ToolRegistryService());
+
+        var results = service.Search("git worktree", source: "code", limit: 3);
+
+        var top = Assert.Single(results.Take(1));
+        Assert.Equal("git_worktree_manager", top.Tool.Id);
+        Assert.True(top.Score > 0);
+        Assert.Equal("tool-layer", top.ProviderLayer);
+        Assert.True(top.RequiresHumanCheckpoint);
+        Assert.Contains("Core approval", top.ApprovalSummary);
+        Assert.Contains("capabilities", top.MatchedFields);
+        Assert.Contains("id", top.MatchedFields);
+    }
+
+    [Fact]
+    public void ToolSearchFiltersReadOnlyPrimitiveTools()
+    {
+        var service = new ToolSearchService(new ToolRegistryService());
+
+        var results = service.Search("file", source: "codex-rust", risk: "read-only", limit: 10);
+
+        Assert.NotEmpty(results);
+        Assert.All(results, result =>
+        {
+            Assert.Equal("codex-rust", result.Tool.Source);
+            Assert.Equal("read-only", result.Tool.Risk);
+            Assert.False(result.RequiresHumanCheckpoint);
+        });
+        Assert.Contains(results, result => result.Tool.Id == "read_file");
+    }
+
+    [Fact]
+    public void ToolExecutionTimelineAggregatesEventsWithStepEvidence()
+    {
+        var projectPath = Path.Combine(Path.GetTempPath(), $"tinadec-tool-timeline-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectPath);
+        var store = new CoreStore(Path.Combine(Path.GetTempPath(), $"tinadec-tool-timeline-{Guid.NewGuid():N}.db"));
+        store.Initialize();
+        var project = store.CreateProject("Timeline", projectPath);
+        var session = store.CreateSession(project.Id, "Timeline session");
+        var snapshot = store.CreateOrchestrationRun(session.Id, "msg_1", "Read the project file.");
+        var runId = snapshot.Run?.Id ?? throw new InvalidOperationException("Run was not created.");
+        var step = store.AddStepResult(
+            runId,
+            "node_read_file",
+            "agent_tool_manager",
+            "completed",
+            "Read File completed with one evidence item.",
+            ["file:README.md"]);
+        store.AppendNewEvent("tool.execution.requested", session.Id, new System.Text.Json.Nodes.JsonObject
+        {
+            ["run_id"] = runId,
+            ["tool_id"] = "read_file",
+            ["requires_approval"] = false
+        }, ["tool.execution"]);
+        store.AppendNewEvent("tool.execution.completed", session.Id, new System.Text.Json.Nodes.JsonObject
+        {
+            ["run_id"] = runId,
+            ["tool_id"] = "read_file",
+            ["status"] = "completed",
+            ["step_result_id"] = step.Id
+        }, ["tool.execution", "step.result"]);
+        var service = new ToolExecutionTimelineService(store, new ToolRegistryService());
+
+        var timeline = service.ListForSession(session.Id);
+
+        var item = Assert.Single(timeline);
+        Assert.Equal("read_file", item.ToolId);
+        Assert.Equal("Read File", item.ToolDisplayName);
+        Assert.Equal("completed", item.Status);
+        Assert.False(item.RequiresApproval);
+        Assert.Equal(step.Id, item.StepResultId);
+        Assert.Equal("Read File completed with one evidence item.", item.Summary);
+        Assert.Contains("file:README.md", item.Evidence);
+        Assert.Contains("tool.execution.requested", item.EventTypes);
+        Assert.Contains("tool.execution.completed", item.EventTypes);
+    }
+
+    [Fact]
     public async Task CodexInvocationAdapterTranslatesCoreInvocationToCodeClient()
     {
         var client = new RecordingCodeToolClient();

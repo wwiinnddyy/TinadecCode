@@ -2241,8 +2241,8 @@ public sealed class CoreStore
     private static IReadOnlyList<TaskSpec> BuildTaskSpecs(string userContent)
     {
         var goal = SummarizeUserGoal(userContent);
-        return
-        [
+        var specs = new List<TaskSpec>
+        {
             new(
                 "Plan the work",
                 $"Break down the user goal and keep success criteria visible: {goal}",
@@ -2275,6 +2275,21 @@ public sealed class CoreStore
                 "approval",
                 ["Validation commands are named", "Shell execution remains approval-gated"],
                 ["test.run", "failure.classify"]),
+        };
+
+        if (NeedsGitManager(userContent))
+        {
+            specs.Add(new(
+                "Prepare Git handoff",
+                "Review branch, diff, commit, push readiness, and user-facing Git explanation under Core approval policy.",
+                "git-manager",
+                "approval-gated",
+                "approval",
+                ["Git state is explained", "Push or history mutation remains approval-gated", "Handoff notes are ready"],
+                ["git.status", "git.diff", "git.push", "handoff.explain"]));
+        }
+
+        specs.Add(
             new(
                 "Synthesize execution guidance",
                 "Combine planning, evidence, supervision, and model reasoning into the next actionable step.",
@@ -2282,8 +2297,19 @@ public sealed class CoreStore
                 "read-only",
                 "observe",
                 ["Next step is clear", "Unresolved risks are visible"],
-                ["code.write", "step.result"])
-        ];
+                ["code.write", "step.result"]));
+
+        return specs;
+    }
+
+    private static bool NeedsGitManager(string userContent)
+    {
+        return ContainsAny(userContent, ["git", "commit", "push", "branch", "worktree", "merge", "rebase", "pull request", "pr "]);
+    }
+
+    private static bool ContainsAny(string content, IReadOnlyList<string> terms)
+    {
+        return terms.Any(term => content.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
     private static AgentProfileDto? ResolveExecutionAgent(

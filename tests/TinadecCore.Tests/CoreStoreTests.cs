@@ -163,6 +163,13 @@ public sealed class CoreStoreTests
         Assert.Contains(agents, agent => agent.Id == "executor_code_explorer" && agent.Layer == "execution");
         Assert.Contains(agents, agent => agent.Id == "executor_file_finder" && agent.Layer == "execution");
         Assert.Contains(agents, agent => agent.Id == "executor_git_manager" && agent.Layer == "execution");
+        var gitAgent = Assert.Single(agents, agent => agent.Id == "executor_git_manager");
+        Assert.Equal("Git Manager Subagent", gitAgent.Name);
+        Assert.Equal("git", gitAgent.ModelRoutePurpose);
+        Assert.Contains("git_worktree_manager", gitAgent.AllowedTools);
+        Assert.Contains("git.push", gitAgent.Capabilities);
+        Assert.Contains("handoff.explain", gitAgent.Capabilities);
+        Assert.Contains("Never push", gitAgent.SystemPrompt ?? "");
         Assert.Contains(agents, agent => agent.Id == "executor_code_writer" && agent.Layer == "execution");
         Assert.Contains(agents, agent => agent.Id == "executor_designer" && agent.Layer == "execution");
         Assert.DoesNotContain(agents, agent => agent.Id.Contains("purifier", StringComparison.OrdinalIgnoreCase));
@@ -285,5 +292,33 @@ public sealed class CoreStoreTests
         Assert.Equal(snapshot.Assignments.Count, plan.Steps.Count);
         Assert.Contains(plan.Steps, step => step.AgentType == "search-specialist" && step.ToolIds.Contains("search_files"));
         Assert.Contains(plan.Steps, step => step.AgentType == "test-multimodal" && step.ToolIds.Contains("sandbox_exec"));
+    }
+
+    [Fact]
+    public void GitManagerSubagentCompilesApprovedGitToolingForPushTasks()
+    {
+        var db = Path.Combine(Path.GetTempPath(), $"tinadec-test-{Guid.NewGuid():N}.db");
+        var store = new CoreStore(db);
+        store.Initialize();
+
+        var project = store.CreateProject("TinadecCode", Environment.CurrentDirectory);
+        var session = store.CreateSession(project.Id, "Git workflow runtime");
+        var message = store.AddMessage(session.Id, "user", "prepare a git commit and push explanation for this branch");
+        var snapshot = store.CreateOrchestrationRun(session.Id, message.Id, message.Content);
+
+        var gitAssignment = Assert.Single(snapshot.Assignments, assignment => assignment.AgentType == "git-manager");
+        Assert.Equal("executor_git_manager", gitAssignment.AgentId);
+        Assert.Contains("git_worktree_manager", gitAssignment.AllowedTools);
+
+        var runtime = new AgentWorkflowRuntime(new ToolRegistryService());
+        var plan = runtime.Compile(snapshot);
+        var gitStep = Assert.Single(plan.Steps, step => step.AgentType == "git-manager");
+
+        Assert.Contains("git_worktree_manager", gitStep.ToolIds);
+        Assert.Contains("sandbox_exec", gitStep.ToolIds);
+        Assert.Contains("review_format", gitStep.ToolIds);
+        Assert.Contains("read_file", gitStep.ToolIds);
+        Assert.Contains("grep_content", gitStep.ToolIds);
+        Assert.Equal("approval", gitStep.PermissionMode);
     }
 }

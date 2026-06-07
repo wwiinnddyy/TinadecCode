@@ -104,6 +104,135 @@ public sealed class ModelContractTests
     }
 
     [Fact]
+    public void HarnessManifestContractSerializesToolAndLayerSummaries()
+    {
+        var manifest = new HarnessManifestDto(
+            Runtime: "tinadec-core-workflow",
+            OwnershipModel: "Core owns orchestration.",
+            AgentLayers:
+            [
+                new AgentLayerManifestDto(
+                    "planning",
+                    "Active planning and supervision layer",
+                    AgentCount: 2,
+                    EnabledAgentCount: 2,
+                    MaxParallelExecutors: 1,
+                    WorktreeIsolation: false,
+                    ApprovalRequired: true,
+                    AgentTypes: ["meeting", "supervisor"],
+                    ToolIds: ["prompt_context_resolve"])
+            ],
+            ToolProviders:
+            [
+                new ToolProviderManifestDto(
+                    "code",
+                    "Code Tool Suite",
+                    "tool-layer",
+                    "active",
+                    ToolCount: 3,
+                    ActiveToolCount: 3,
+                    FutureToolCount: 0,
+                    ApprovalRequiredCount: 2,
+                    ReadOnlyCount: 1,
+                    CapabilityPrefixes: ["project", "runtime"])
+            ],
+            ToolRisks:
+            [
+                new ToolRiskManifestDto(
+                    "workspace-write",
+                    ToolCount: 1,
+                    RequiresHumanCheckpoint: true,
+                    PolicySummary: "Requires approval.")
+            ],
+            Tools:
+            [
+                new ToolDescriptorDto(
+                    "apply_patch",
+                    "Apply Patch",
+                    "programming",
+                    "codex-rust",
+                    "workspace-write",
+                    RequiresApproval: true,
+                    ExecuteEndpoint: "/api/v1/code/tools/apply_patch/execute",
+                    Capabilities: ["patch.apply"])
+            ],
+            DesignNotes: ["Code is a Tool-layer suite."]);
+
+        var json = JsonSerializer.Serialize(manifest, JsonOptions);
+
+        Assert.Contains("\"ownership_model\":\"Core owns orchestration.\"", json);
+        Assert.Contains("\"agent_layers\"", json);
+        Assert.Contains("\"enabled_agent_count\":2", json);
+        Assert.Contains("\"max_parallel_executors\":1", json);
+        Assert.Contains("\"tool_providers\"", json);
+        Assert.Contains("\"approval_required_count\":2", json);
+        Assert.Contains("\"tool_risks\"", json);
+        Assert.Contains("\"requires_human_checkpoint\":true", json);
+        Assert.Contains("\"execute_endpoint\":\"/api/v1/code/tools/apply_patch/execute\"", json);
+    }
+
+    [Fact]
+    public void ToolSearchResultContractSerializesCoreDiscoveryMetadata()
+    {
+        var result = new ToolSearchResultDto(
+            new ToolDescriptorDto(
+                "git_worktree_manager",
+                "Git Worktree Manager",
+                "programming",
+                "code",
+                "git-write",
+                RequiresApproval: true,
+                ExecuteEndpoint: "/api/v1/code/tools/git_worktree_manager/execute",
+                Capabilities: ["git.worktree", "workspace.isolation"]),
+            Score: 420,
+            MatchedFields: ["id", "capabilities"],
+            ProviderLayer: "tool-layer",
+            RequiresHumanCheckpoint: true,
+            ApprovalSummary: "Requires Core approval before dispatch.");
+
+        var json = JsonSerializer.Serialize(result, JsonOptions);
+
+        Assert.Contains("\"score\":420", json);
+        Assert.Contains("\"matched_fields\":[\"id\",\"capabilities\"]", json);
+        Assert.Contains("\"provider_layer\":\"tool-layer\"", json);
+        Assert.Contains("\"requires_human_checkpoint\":true", json);
+        Assert.Contains("\"approval_summary\":\"Requires Core approval before dispatch.\"", json);
+    }
+
+    [Fact]
+    public void ToolExecutionTimelineContractSerializesAuditMetadata()
+    {
+        var item = new ToolExecutionTimelineItemDto(
+            "step_1",
+            "run_1",
+            "sess_1",
+            "read_file",
+            "Read File",
+            "codex-rust",
+            "read-only",
+            RequiresApproval: false,
+            Status: "completed",
+            ApprovalId: null,
+            StepResultId: "step_1",
+            Summary: "Read a file.",
+            Evidence: ["file:README.md"],
+            RequestedAt: DateTimeOffset.UnixEpoch,
+            UpdatedAt: DateTimeOffset.UnixEpoch.AddSeconds(2),
+            RequestedSeq: 10,
+            UpdatedSeq: 11,
+            EventTypes: ["tool.execution.requested", "tool.execution.completed"]);
+
+        var json = JsonSerializer.Serialize(item, JsonOptions);
+
+        Assert.Contains("\"tool_display_name\":\"Read File\"", json);
+        Assert.Contains("\"requires_approval\":false", json);
+        Assert.Contains("\"step_result_id\":\"step_1\"", json);
+        Assert.Contains("\"requested_seq\":10", json);
+        Assert.Contains("\"updated_seq\":11", json);
+        Assert.Contains("\"event_types\":[\"tool.execution.requested\",\"tool.execution.completed\"]", json);
+    }
+
+    [Fact]
     public void PromptFragmentContractUsesPlanFieldNames()
     {
         var fragment = new PromptFragmentDto(

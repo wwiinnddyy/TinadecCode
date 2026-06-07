@@ -22,7 +22,7 @@ src/TinadecCore/
 | Change persistence | `Storage/CoreStore.cs` | Largest hotspot; pair with CoreStore tests. |
 | Change DTO/request | `Contracts/Models`, `Contracts/Events` | Mirror Desktop `api.ts` after Core changes. |
 | Prompt context engineering | `Services/PromptContextService.cs`, `Storage/CoreStore.cs`, `Services/ToolRegistryService.cs` | SQLite prompt fragments, preview assembly, Prompt Context Engineer fallback plan, and read-only `prompt_context_resolve` tool live in Core. |
-| Tool policy | `Services/ToolRegistryService.cs`, `CapabilityPolicyService.cs` | Approval-first behavior. |
+| Tool policy/discovery/audit | `Services/ToolRegistryService.cs`, `ToolSearchService.cs`, `ToolExecutionTimelineService.cs`, `CapabilityPolicyService.cs` | Approval-first behavior, Core-owned tool registry, searchable discovery metadata, and tool execution timeline summaries. |
 | Code-suite registration | `Services/ToolRegistryService.cs` | `CodeCapabilityProvider` registers Tool-layer Code capabilities; keep Code modeled as tools, not a peer orchestrator. |
 | Orchestration | `Services/OrchestratorService.cs`, `AgentWorkflowRuntime.cs` | Runs, task graph, read-only tools. |
 | Model providers | `Services/ModelProviderCatalog.cs`, `OpenAiCompatibleClient.cs` | Provider-instance model center. |
@@ -38,6 +38,9 @@ src/TinadecCore/
 - `PromptContextService` owns Meeting Agent system prompt assembly. Keep full prompt text out of events/tool results; log only fragment ids, estimated token count, context pack ids, and warning counts.
 - Tool execution must preserve approval-gated posture.
 - Tool layer capabilities are registered in Core. `CodeCapabilityProvider` is the built-in Code suite for project templates, runtime probes, bash-like env, debugging, editor, and Git worktree management.
+- `executor_git_manager` is the dedicated Git Manager Subagent. Keep it in the execution layer, bind it to `git_worktree_manager`, and keep push/history mutations approval-gated.
+- Tool discovery is Core-owned. `/api/v1/tools/search` must derive provider layer, matched fields, and human-checkpoint summaries from Core descriptors and policy semantics.
+- Tool execution visibility is Core-owned. `/api/v1/sessions/{sessionId}/tool-executions` must derive timeline state from Core events plus step-result evidence.
 - Keep `project_templates` read-only and `project_template_scaffold` approval-gated as `workspace-write`; scaffolding must flow through Core approval before Gateway writes files.
 - `SecretProtector` uses DPAPI on Windows; non-Windows fallback is for development only.
 - Trace propagation crosses to Gateway/code tools; preserve `traceparent` behavior in client changes.

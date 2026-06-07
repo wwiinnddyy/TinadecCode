@@ -354,6 +354,72 @@ public sealed record ToolDescriptorDto(
     string ExecuteEndpoint,
     IReadOnlyList<string> Capabilities);
 
+public sealed record ToolSearchResultDto(
+    ToolDescriptorDto Tool,
+    int Score,
+    IReadOnlyList<string> MatchedFields,
+    string ProviderLayer,
+    bool RequiresHumanCheckpoint,
+    string ApprovalSummary);
+
+public sealed record ToolExecutionTimelineItemDto(
+    string Id,
+    string RunId,
+    string SessionId,
+    string ToolId,
+    string ToolDisplayName,
+    string Source,
+    string Risk,
+    bool RequiresApproval,
+    string Status,
+    string? ApprovalId,
+    string? StepResultId,
+    string Summary,
+    IReadOnlyList<string> Evidence,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset UpdatedAt,
+    long RequestedSeq,
+    long UpdatedSeq,
+    IReadOnlyList<string> EventTypes);
+
+public sealed record AgentLayerManifestDto(
+    string Layer,
+    string Role,
+    int AgentCount,
+    int EnabledAgentCount,
+    int MaxParallelExecutors,
+    bool WorktreeIsolation,
+    bool ApprovalRequired,
+    IReadOnlyList<string> AgentTypes,
+    IReadOnlyList<string> ToolIds);
+
+public sealed record ToolProviderManifestDto(
+    string Source,
+    string DisplayName,
+    string Layer,
+    string Status,
+    int ToolCount,
+    int ActiveToolCount,
+    int FutureToolCount,
+    int ApprovalRequiredCount,
+    int ReadOnlyCount,
+    IReadOnlyList<string> CapabilityPrefixes);
+
+public sealed record ToolRiskManifestDto(
+    string Risk,
+    int ToolCount,
+    bool RequiresHumanCheckpoint,
+    string PolicySummary);
+
+public sealed record HarnessManifestDto(
+    string Runtime,
+    string OwnershipModel,
+    IReadOnlyList<AgentLayerManifestDto> AgentLayers,
+    IReadOnlyList<ToolProviderManifestDto> ToolProviders,
+    IReadOnlyList<ToolRiskManifestDto> ToolRisks,
+    IReadOnlyList<ToolDescriptorDto> Tools,
+    IReadOnlyList<string> DesignNotes);
+
 public sealed record AgentWorkflowStepDto(
     string Id,
     string RunId,
