@@ -1,24 +1,24 @@
 import { ref, computed } from 'vue'
 import {
   GitBranch,
-  GitCommitHorizontal,
   ShieldCheck,
   Layers3,
   Activity,
   Stethoscope,
   Globe,
+  Bot,
   type LucideIcon,
 } from '@lucide/vue'
 
 export type PanelType =
   | 'home'
   | 'git'
-  | 'commit'
   | 'approval'
   | 'orchestration'
   | 'events'
   | 'doctor'
   | 'preview'
+  | 'agent'
 
 export interface PanelTab {
   id: string
@@ -135,10 +135,10 @@ export function usePanelTabs() {
  */
 export const panelIcons = {
   GitBranch,
-  GitCommitHorizontal,
   ShieldCheck,
   Layers3,
   Activity,
   Stethoscope,
   Globe,
+  Bot,
 }

@@ -28,11 +28,11 @@ function close() {
 
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50" @click="close" />
       <div
         :class="cn(
-          'relative z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-200 sm:rounded-lg',
+          'responsive-dialog relative z-50 grid w-full max-w-lg max-h-[90vh] overflow-y-auto gap-4 border bg-background p-6 shadow-lg duration-200 sm:rounded-lg',
           props.class,
         )"
       >

@@ -22,22 +22,23 @@ interface FeatureCard {
 
 const props = defineProps<{
   pendingApprovalCount: number
+  compact?: boolean
 }>()
 
 const features = computed<FeatureCard[]>(() => [
+  {
+    type: 'agent',
+    titleKey: 'context.homeAgent',
+    descKey: 'context.homeAgentDesc',
+    icon: panelIcons.Bot,
+    color: '#58a6ff',
+  },
   {
     type: 'git',
     titleKey: 'context.homeGit',
     descKey: 'context.homeGitDesc',
     icon: panelIcons.GitBranch,
     color: '#f1502f',
-  },
-  {
-    type: 'commit',
-    titleKey: 'context.homeCommit',
-    descKey: 'context.homeCommitDesc',
-    icon: panelIcons.GitCommitHorizontal,
-    color: '#2ec4b6',
   },
   {
     type: 'approval',
@@ -84,10 +85,10 @@ function handleClick(feature: FeatureCard) {
 </script>
 
 <template>
-  <section class="panel-home">
+  <section class="panel-home" :class="{ 'panel-home-compact': props.compact }">
     <div class="panel-home-header">
       <h2>{{ t('context.homeTitle') }}</h2>
-      <p>{{ t('context.homeSubtitle') }}</p>
+      <p v-if="!props.compact">{{ t('context.homeSubtitle') }}</p>
     </div>
 
     <div class="panel-home-grid">
@@ -95,14 +96,15 @@ function handleClick(feature: FeatureCard) {
         v-for="feature in features"
         :key="feature.type"
         class="panel-home-card"
+        :class="{ 'panel-home-card-compact': props.compact }"
         @click="handleClick(feature)"
       >
         <div class="panel-home-card-icon" :style="{ '--card-color': feature.color }">
-          <component :is="feature.icon" :size="22" />
+          <component :is="feature.icon" :size="props.compact ? 18 : 22" />
         </div>
         <div class="panel-home-card-body">
           <span class="panel-home-card-title">{{ t(feature.titleKey) }}</span>
-          <span class="panel-home-card-desc">{{ t(feature.descKey) }}</span>
+          <span v-if="!props.compact" class="panel-home-card-desc">{{ t(feature.descKey) }}</span>
         </div>
         <span
           v-if="feature.badge && feature.badge() > 0"
@@ -113,7 +115,7 @@ function handleClick(feature: FeatureCard) {
       </button>
     </div>
 
-    <div class="panel-home-footer">
+    <div v-if="!props.compact" class="panel-home-footer">
       <span>{{ t('context.homeFooterHint') }}</span>
     </div>
   </section>
@@ -153,6 +155,35 @@ function handleClick(feature: FeatureCard) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+/* Compact mode: single column, reduced padding */
+.panel-home-compact {
+  padding: 12px 10px;
+  gap: 10px;
+}
+
+.panel-home-compact .panel-home-grid {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.panel-home-card-compact {
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 10px;
+  gap: 10px;
+}
+
+.panel-home-card-compact .panel-home-card-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.panel-home-card-compact .panel-home-card-body {
+  flex-direction: column;
+  gap: 0;
 }
 
 .panel-home-card {

@@ -144,7 +144,7 @@ watch(
         <ArrowLeft :size="15" />
       </button>
       <button
-        class="preview-nav-btn"
+        class="preview-nav-btn preview-nav-secondary"
         :disabled="!canGoForward"
         :title="t('context.previewForward')"
         @click="goForward"
@@ -159,7 +159,7 @@ watch(
         <RefreshCw :size="15" :class="{ spinning: loading }" />
       </button>
       <button
-        class="preview-nav-btn"
+        class="preview-nav-btn preview-nav-secondary"
         :title="t('context.previewHome')"
         @click="goHome"
       >

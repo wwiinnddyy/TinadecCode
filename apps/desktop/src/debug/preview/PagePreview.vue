@@ -14,6 +14,7 @@ import ContextPanel from '@/components/ContextPanel.vue'
 import DiffViewer from '@/components/git/DiffViewer.vue'
 import CommitMessageEditor from '@/components/git/CommitMessageEditor.vue'
 import { UiBadge, UiButton, UiCard, UiInput, UiLabel, UiSwitch } from '@/components/ui'
+import type { AgentActivity, AgentState } from '@/composables/useAgentActivity'
 import {
   FileCode2,
   GitBranch,
@@ -54,6 +55,22 @@ const rightRailWidth = ref(420)
 const shellCommand = ref('npm test')
 const selectedProjectId = ref<string | null>(null)
 const selectedSessionId = ref<string | null>(null)
+
+// ---- Mock agent activity data for preview ----
+const mockAgentActivity: AgentActivity = {
+  status: 'idle',
+  runId: null,
+  runStartedAt: null,
+  runSummary: null,
+  activeAgentName: null,
+  activeAgentRole: null,
+  completedNodes: 0,
+  totalNodes: 0,
+  lastUpdated: null,
+}
+const mockAgentStates: Record<string, AgentState> = {}
+const mockThinkingSteps: never[] = []
+const mockProgressEvents: never[] = []
 
 // 初始化选中项
 function ensureSelection() {
@@ -179,6 +196,10 @@ const filteredCatalog = computed(() => {
           :busy="false"
           :selected-session-id="selectedSessionId"
           :current-project-path="currentProject?.path"
+          :agent-activity="mockAgentActivity"
+          :agent-states="mockAgentStates"
+          :thinking-steps="mockThinkingSteps"
+          :progress-events="mockProgressEvents"
           @update:shell-command="shellCommand = $event"
         />
       </section>
@@ -220,6 +241,10 @@ const filteredCatalog = computed(() => {
         :busy="false"
         :selected-session-id="selectedSessionId"
         :current-project-path="currentProject?.path"
+        :agent-activity="mockAgentActivity"
+        :agent-states="mockAgentStates"
+        :thinking-steps="mockThinkingSteps"
+        :progress-events="mockProgressEvents"
         @update:shell-command="shellCommand = $event"
       />
     </div>

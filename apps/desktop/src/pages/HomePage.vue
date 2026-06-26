@@ -8,6 +8,7 @@ import AppSidebar from '../components/AppSidebar.vue'
 import AppHeader from '../components/AppHeader.vue'
 import ChatPanel from '../components/ChatPanel.vue'
 import ContextPanel from '../components/ContextPanel.vue'
+import { useAgentActivity } from '@/composables/useAgentActivity'
 import type { AgentMode, PermissionLevel } from '../types/mode'
 
 const router = useRouter()
@@ -43,6 +44,18 @@ const currentPermission = ref<PermissionLevel>('default')
 const currentProject = computed(() => projects.value.find((project) => project.id === selectedProjectId.value) ?? null)
 const currentSession = computed(() => sessions.value.find((session) => session.id === selectedSessionId.value) ?? null)
 const recentEvents = computed(() => events.value.slice(-8).reverse())
+
+// ---- Agent activity (moved from ChatPanel; data shared with both chat and sidebar) ----
+const sessionIdRef = computed(() => currentSession.value?.id ?? null)
+const {
+  activity: agentActivity,
+  toolCalls: agentToolCalls,
+  thinkingSteps: agentThinkingSteps,
+  agentStates: agentStatesMap,
+  progressEvents: agentProgressEvents,
+} = useAgentActivity(sessionIdRef, orchestration)
+
+const agentLabel = computed(() => agentActivity.value.activeAgentName ?? null)
 
 function generateTitle(content: string): string {
   const trimmed = content.trim()
@@ -292,6 +305,9 @@ onUnmounted(() => {
         :draft="draft"
         :mode="currentMode"
         :permission="currentPermission"
+        :thinking-steps="agentThinkingSteps"
+        :tool-calls="agentToolCalls"
+        :agent-label="agentLabel"
         @update:draft="draft = $event"
         @update:mode="currentMode = $event"
         @update:permission="currentPermission = $event"
@@ -328,6 +344,10 @@ onUnmounted(() => {
         :busy="busy"
         :selected-session-id="selectedSessionId"
         :current-project-path="currentProject?.path"
+        :agent-activity="agentActivity"
+        :agent-states="agentStatesMap"
+        :thinking-steps="agentThinkingSteps"
+        :progress-events="agentProgressEvents"
         @request-approval="requestShellApproval"
         @decide-approval="decideApproval"
         @approval-created="recordApproval"

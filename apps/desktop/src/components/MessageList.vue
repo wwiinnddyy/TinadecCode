@@ -4,8 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { UiScrollArea } from '@/components/ui'
 import type { MessageDto } from '../api'
 import MessageItem from './MessageItem.vue'
-import ProgressStream from './chat/ProgressStream.vue'
-import type { ThinkingStep, ToolCall, ProgressEvent } from '@/composables/useAgentActivity'
+import type { ThinkingStep, ToolCall } from '@/composables/useAgentActivity'
 
 const { t } = useI18n()
 
@@ -13,7 +12,6 @@ defineProps<{
   messages: MessageDto[]
   thinkingSteps?: ThinkingStep[]
   toolCalls?: ToolCall[]
-  progressEvents?: ProgressEvent[]
   agentLabel?: string | null
 }>()
 
@@ -44,7 +42,6 @@ const emit = defineEmits<{
         </div>
       </div>
     </UiScrollArea>
-    <ProgressStream v-if="progressEvents && progressEvents.length > 0" :events="progressEvents" />
   </div>
 </template>
 

@@ -4,14 +4,16 @@ import { Home as HomeIcon, PanelRightClose, PanelRightOpen, Plus, X, type Lucide
 import { useI18n } from 'vue-i18n'
 import ApprovalTab from './ApprovalTab.vue'
 import GitPanel from './GitPanel.vue'
-import CommitPanel from './CommitPanel.vue'
 import EventsTab from './EventsTab.vue'
 import DoctorTab from './DoctorTab.vue'
 import OrchestrationTab from './OrchestrationTab.vue'
 import PanelHome from './PanelHome.vue'
 import PreviewBrowserPanel from './PreviewBrowserPanel.vue'
+import AgentActivityPanel from './AgentActivityPanel.vue'
 import { usePanelTabs, type PanelType } from '../composables/usePanelTabs'
+import { useResponsiveMode } from '../composables/useElementSize'
 import type { ApprovalDto, EventEnvelope, DoctorReportDto, OrchestrationSnapshotDto, RuntimeReadinessReceiptDto, ToolExecutionTimelineItemDto } from '../api'
+import type { AgentActivity, AgentState, ThinkingStep, ProgressEvent } from '@/composables/useAgentActivity'
 
 const { t } = useI18n()
 
@@ -31,6 +33,11 @@ const props = defineProps<{
   busy: boolean
   selectedSessionId: string | null
   currentProjectPath: string | undefined
+  /** Agent activity data for the agent panel */
+  agentActivity: AgentActivity
+  agentStates: Record<string, AgentState>
+  thinkingSteps: ThinkingStep[]
+  progressEvents: ProgressEvent[]
 }>()
 
 const emit = defineEmits<{
@@ -48,6 +55,17 @@ const {
   selectTab,
   goHome,
 } = usePanelTabs()
+
+// ---- Responsive mode detection ----
+const panelRef = ref<HTMLElement | null>(null)
+const { mode: responsiveMode, isCompact } = useResponsiveMode(panelRef)
+
+const panelClass = computed(() => ({
+  collapsed,
+  resizing: isResizing,
+  'mode-compact': isCompact.value,
+  'mode-ultra': responsiveMode.value === 'ultra',
+}))
 
 const pendingApprovalCount = computed(() =>
   props.approvals?.filter((a) => a.status === 'pending').length ?? 0,
@@ -69,7 +87,7 @@ function startResize(event: MouseEvent) {
 
   function onMouseMove(e: MouseEvent) {
     const delta = startX - e.clientX
-    const newWidth = Math.max(300, Math.min(760, startWidth + delta))
+    const newWidth = Math.max(280, Math.min(760, startWidth + delta))
     panelWidth.value = newWidth
   }
 
@@ -82,13 +100,13 @@ function startResize(event: MouseEvent) {
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('mouseup', onMouseUp)
 }
-
 </script>
 
 <template>
   <aside
+    ref="panelRef"
     class="float-panel browser-tabs-panel"
-    :class="{ collapsed, resizing: isResizing }"
+    :class="panelClass"
     :style="{ width: collapsed ? undefined : `${panelWidth}px` }"
   >
     <!-- Resize handle -->
@@ -102,12 +120,12 @@ function startResize(event: MouseEvent) {
       <!-- Browser-style tab bar -->
       <div class="browser-tab-bar">
         <button
-          class="browser-tab"
+          class="browser-tab browser-tab-home"
           :class="{ active: activeTabId === 'home' }"
           :title="t('context.homeTitle')"
           @click="goHome"
         >
-          <HomeIcon :size="13" />
+          <HomeIcon :size="14" />
           <span class="browser-tab-label">{{ t('context.homeTabLabel') }}</span>
         </button>
 
@@ -119,7 +137,7 @@ function startResize(event: MouseEvent) {
           :title="tab.title"
           @click="selectTab(tab.id)"
         >
-          <component :is="tab.icon" :size="13" />
+          <component :is="tab.icon" :size="14" class="browser-tab-icon" />
           <span class="browser-tab-label">{{ tab.title }}</span>
           <span
             class="browser-tab-close"
@@ -152,6 +170,7 @@ function startResize(event: MouseEvent) {
         <div v-show="activeTabId === 'home'" class="browser-tab-pane">
           <PanelHome
             :pending-approval-count="pendingApprovalCount"
+            :compact="isCompact"
             @open-panel="handleOpenPanel"
           />
         </div>
@@ -164,22 +183,6 @@ function startResize(event: MouseEvent) {
           class="browser-tab-pane"
         >
           <GitPanel
-            :approvals="approvals"
-            :current-project-path="currentProjectPath"
-            :selected-session-id="selectedSessionId"
-            @decide-approval="(a, d) => emit('decide-approval', a, d)"
-            @approval-created="emit('approval-created', $event)"
-          />
-        </div>
-
-        <!-- Commit panel -->
-        <div
-          v-for="tab in tabs.filter((t) => t.type === 'commit')"
-          :key="tab.id"
-          v-show="activeTabId === tab.id"
-          class="browser-tab-pane"
-        >
-          <CommitPanel
             :approvals="approvals"
             :current-project-path="currentProjectPath"
             :selected-session-id="selectedSessionId"
@@ -244,6 +247,22 @@ function startResize(event: MouseEvent) {
           class="browser-tab-pane"
         >
           <PreviewBrowserPanel :initial-url="(tab.state?.url as string) ?? ''" />
+        </div>
+
+        <!-- Agent activity panel -->
+        <div
+          v-for="tab in tabs.filter((t) => t.type === 'agent')"
+          :key="tab.id"
+          v-show="activeTabId === tab.id"
+          class="browser-tab-pane"
+        >
+          <AgentActivityPanel
+            :activity="agentActivity"
+            :agent-states="agentStates"
+            :thinking-steps="thinkingSteps"
+            :progress-events="progressEvents"
+            :orchestration="orchestration"
+          />
         </div>
       </div>
     </template>

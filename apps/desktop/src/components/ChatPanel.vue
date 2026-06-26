@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { computed, toRef } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import ChatHeader from './ChatHeader.vue'
 import MessageList from './MessageList.vue'
 import ComposerBar from './ComposerBar.vue'
 import WelcomeScreen from './WelcomeScreen.vue'
-import TaskGraphPanel from './TaskGraphPanel.vue'
-import AgentActivityBanner from './chat/AgentActivityBanner.vue'
-import { useAgentActivity } from '@/composables/useAgentActivity'
+import { useChatResponsiveMode } from '@/composables/useElementSize'
 import type { MessageDto, SessionDto, ProjectDto, OrchestrationSnapshotDto } from '../api'
 import type { AgentMode, PermissionLevel } from '@/types/mode'
+import type { ThinkingStep, ToolCall } from '@/composables/useAgentActivity'
 
 const props = defineProps<{
   messages: MessageDto[]
@@ -23,6 +22,10 @@ const props = defineProps<{
   draft: string
   mode: AgentMode
   permission: PermissionLevel
+  /** Agent activity data — now owned by HomePage, passed down for per-message rendering */
+  thinkingSteps?: ThinkingStep[]
+  toolCalls?: ToolCall[]
+  agentLabel?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -37,18 +40,14 @@ const emit = defineEmits<{
   'reject': [approvalId: string]
 }>()
 
-const sessionId = computed(() => props.currentSession?.id ?? null)
-const orchestrationRef = toRef(props, 'orchestration')
+// ---- Responsive mode detection for chat area ----
+const conversationRef = ref<HTMLElement | null>(null)
+const { mode: chatMode } = useChatResponsiveMode(conversationRef)
 
-const {
-  activity,
-  toolCalls,
-  thinkingSteps,
-  agentStates,
-  progressEvents,
-} = useAgentActivity(sessionId, orchestrationRef)
-
-const agentLabel = computed(() => activity.value.activeAgentName ?? null)
+const conversationClass = computed(() => ({
+  'chat-narrow': chatMode.value === 'narrow' || chatMode.value === 'ultra',
+  'chat-ultra': chatMode.value === 'ultra',
+}))
 
 function handleApprove(approvalId: string) {
   emit('approve', approvalId)
@@ -60,7 +59,7 @@ function handleReject(approvalId: string) {
 </script>
 
 <template>
-  <section class="conversation">
+  <section ref="conversationRef" class="conversation" :class="conversationClass">
     <Transition name="chat-panel" mode="out-in">
       <template v-if="messages.length === 0">
         <WelcomeScreen
@@ -78,13 +77,10 @@ function handleReject(approvalId: string) {
       <template v-else>
         <div class="chat-active-panel" key="chat-active">
           <ChatHeader :current-session="currentSession" />
-          <AgentActivityBanner :activity="activity" :agent-states="agentStates" />
-          <TaskGraphPanel :snapshot="orchestration" />
           <MessageList
             :messages="messages"
             :thinking-steps="thinkingSteps"
             :tool-calls="toolCalls"
-            :progress-events="progressEvents"
             :agent-label="agentLabel"
             @approve="handleApprove"
             @reject="handleReject"

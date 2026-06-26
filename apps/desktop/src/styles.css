@@ -1557,21 +1557,16 @@ button {
   top: 0;
   left: 0;
   bottom: 0;
-  width: 6px;
+  width: 5px;
   cursor: col-resize;
   z-index: 20;
   background: transparent;
-  transition: background 0.15s;
 }
 
-.float-panel-resizer:hover {
-  background: var(--accent-primary);
-  opacity: 0.3;
-}
-
+/* Only show visual feedback during active drag, not on hover. */
 .float-panel.resizing .float-panel-resizer {
   background: var(--accent-primary);
-  opacity: 0.5;
+  opacity: 0.4;
 }
 
 /* ===== Browser-style tab bar ===== */
@@ -1596,7 +1591,9 @@ button {
   align-items: center;
   gap: 5px;
   max-width: 140px;
-  min-width: 0;
+  /* P0: Never let a tab shrink below icon size.
+     Icon(14) + padding(18) = 32px absolute minimum. */
+  min-width: 32px;
   padding: 5px 8px 5px 10px;
   font-size: 11.5px;
   font-weight: 500;
@@ -1608,6 +1605,7 @@ button {
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
   position: relative;
+  overflow: hidden;
 }
 
 .browser-tab:hover {
@@ -1631,10 +1629,16 @@ button {
   border-radius: 2px 2px 0 0;
 }
 
+/* P0: Icon must never be squeezed out */
+.browser-tab-icon {
+  flex-shrink: 0;
+}
+
 .browser-tab-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 1;
 }
 
 .browser-tab-close {
@@ -1691,6 +1695,98 @@ button {
 .browser-tab-collapse:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
+}
+
+/* ===== Responsive: Compact mode (panel width < 420px) ===== */
+/* Strategy: Progressive disclosure — hide labels first, keep icons. */
+.float-panel.mode-compact .browser-tab-label {
+  display: none;
+}
+
+.float-panel.mode-compact .browser-tab {
+  max-width: 36px;
+  padding: 5px;
+  justify-content: center;
+}
+
+.float-panel.mode-compact .browser-tab-home {
+  max-width: 36px;
+}
+
+/* Hide close button in compact; show on hover only */
+.float-panel.mode-compact .browser-tab-close {
+  display: none;
+}
+
+.float-panel.mode-compact .browser-tab:hover .browser-tab-close {
+  display: grid;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: var(--bg-tertiary);
+}
+
+/* ===== Responsive: Ultra-compact mode (panel width < 340px) ===== */
+/* Strategy: Hide secondary actions, keep only essential icons. */
+.float-panel.mode-ultra .browser-tab-add {
+  display: none;
+}
+
+.float-panel.mode-ultra .browser-tab-bar {
+  padding: 4px 2px 0 2px;
+  gap: 0;
+}
+
+.float-panel.mode-ultra .browser-tab {
+  max-width: 30px;
+  min-width: 28px;
+  padding: 5px 4px;
+}
+
+.float-panel.mode-ultra .browser-tab-collapse {
+  width: 24px;
+  height: 24px;
+}
+
+/* ===== Responsive: Preview browser toolbar ===== */
+/* Compact: hide secondary nav buttons (forward, home) to save space */
+.float-panel.mode-compact .preview-nav-secondary {
+  display: none;
+}
+
+.float-panel.mode-compact .preview-toolbar {
+  gap: 2px;
+  padding: 4px 6px;
+}
+
+/* Ultra-compact: further reduce toolbar */
+.float-panel.mode-ultra .preview-nav-btn {
+  width: 24px;
+  height: 24px;
+}
+
+/* ===== Responsive: Commit panel ===== */
+/* Compact: stack action buttons vertically */
+.float-panel.mode-compact .commit-actions {
+  flex-direction: column;
+}
+
+.float-panel.mode-compact .commit-action-btn {
+  width: 100%;
+}
+
+/* Compact: reduce file list height */
+.float-panel.mode-compact .commit-file-list {
+  max-height: 160px;
+}
+
+/* ===== Responsive: General panel padding ===== */
+.float-panel.mode-compact .panel {
+  padding: 10px 8px;
+}
+
+.float-panel.mode-ultra .panel {
+  padding: 8px 6px;
 }
 
 /* ===== Tab content area ===== */
@@ -5165,6 +5261,22 @@ label {
   .git-manager-grid {
     grid-template-columns: 1fr;
   }
+
+  /* Responsive dialog: reduce padding on small viewports */
+  .responsive-dialog {
+    max-width: calc(100vw - 2rem) !important;
+    padding: 1rem;
+    border-radius: 8px;
+  }
+}
+
+/* Narrow viewport: further compress dialog */
+@media (max-width: 480px) {
+  .responsive-dialog {
+    max-width: calc(100vw - 1rem) !important;
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
 }
 
 .model-capability-row.compact {
@@ -5465,7 +5577,7 @@ select:focus {
 
 .chat-active-panel {
   display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-rows: auto 1fr auto;
   flex: 1;
   min-height: 0;
 }
@@ -5536,4 +5648,214 @@ select:focus {
   font-size: 10px;
   color: var(--text-muted);
   justify-content: flex-end;
+}
+
+/* ========================================================================
+   Responsive: Conversation / Chat area — narrow width optimisation
+   Triggered when the chat area between sidebar and right panel is narrow.
+   Breakpoints:
+     - chat-narrow  (< 560px): hide labels, reduce paddings, icon-only toolbar
+     - chat-ultra   (< 400px): stack toolbar vertically, full-width messages
+   ======================================================================== */
+
+/* ---- Narrow mode: reduce paddings, hide text labels ---- */
+.conversation.chat-narrow .welcome-screen {
+  padding: 10px 8px;
+}
+
+.conversation.chat-narrow .welcome-content {
+  max-width: 100%;
+  gap: 10px;
+}
+
+.conversation.chat-narrow .welcome-title {
+  font-size: 16px;
+}
+
+.conversation.chat-narrow .welcome-dialog-main {
+  padding: 8px 8px;
+}
+
+.conversation.chat-narrow .welcome-dialog-toolbar {
+  padding: 5px 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.conversation.chat-narrow .toolbar-left {
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* Hide mode/permission labels — keep icon + chevron only */
+.conversation.chat-narrow .mode-selector-label,
+.conversation.chat-narrow .permission-selector-label {
+  display: none;
+}
+
+.conversation.chat-narrow .mode-selector-trigger,
+.conversation.chat-narrow .permission-selector-trigger {
+  padding: 4px 6px;
+}
+
+/* Hide agent-config text — keep icon only */
+.conversation.chat-narrow .toolbar-agent-config span,
+.conversation.chat-narrow .composer-agent-config span {
+  display: none;
+}
+
+.conversation.chat-narrow .toolbar-agent-config,
+.conversation.chat-narrow .composer-agent-config {
+  padding: 4px 6px;
+}
+
+/* Truncate project dropdown label more aggressively */
+.conversation.chat-narrow .project-dropdown-label {
+  max-width: 80px;
+}
+
+/* Composer: reduce padding */
+.conversation.chat-narrow .composer {
+  padding: 4px 8px 8px;
+}
+
+.conversation.chat-narrow .composer-toolbar {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.conversation.chat-narrow .composer-toolbar-left {
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* Message list: reduce horizontal padding */
+.conversation.chat-narrow .message-stream-inner {
+  padding: 8px 8px 12px;
+}
+
+/* Chat header: reduce padding */
+.conversation.chat-narrow .conversation-head {
+  padding: 8px 10px 6px;
+}
+
+.conversation.chat-narrow .conversation-head h1 {
+  font-size: 14px;
+}
+
+/* User messages: allow wider bubbles */
+.conversation.chat-narrow .message-content.user {
+  max-width: 92%;
+}
+
+/* ---- Ultra mode: stack toolbar, minimal padding, full-width ---- */
+.conversation.chat-ultra .welcome-screen {
+  padding: 6px 4px;
+}
+
+.conversation.chat-ultra .welcome-content {
+  gap: 8px;
+}
+
+.conversation.chat-ultra .welcome-title {
+  font-size: 14px;
+}
+
+.conversation.chat-ultra .welcome-dialog-main {
+  padding: 6px 6px;
+}
+
+/* Stack toolbar vertically in ultra mode */
+.conversation.chat-ultra .welcome-dialog-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 6px;
+}
+
+.conversation.chat-ultra .toolbar-left {
+  flex-direction: row;
+  justify-content: center;
+  gap: 3px;
+}
+
+.conversation.chat-ultra .toolbar-right {
+  justify-content: center;
+}
+
+/* Hide project dropdown label entirely — icon only */
+.conversation.chat-ultra .project-dropdown-label {
+  display: none;
+}
+
+.conversation.chat-ultra .project-dropdown-chevron {
+  display: none;
+}
+
+/* Composer: ultra compact */
+.conversation.chat-ultra .composer {
+  padding: 3px 4px 6px;
+}
+
+.conversation.chat-ultra .composer-main {
+  padding: 4px 4px;
+  gap: 2px;
+}
+
+.conversation.chat-ultra .composer-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 3px 4px 4px;
+}
+
+.conversation.chat-ultra .composer-toolbar-left {
+  justify-content: center;
+  gap: 3px;
+}
+
+.conversation.chat-ultra .composer-toolbar-right {
+  justify-content: center;
+}
+
+/* Message list: minimal padding */
+.conversation.chat-ultra .message-stream-inner {
+  padding: 6px 4px 10px;
+}
+
+/* User messages: full width in ultra mode */
+.conversation.chat-ultra .message-content.user {
+  max-width: 100%;
+}
+
+.conversation.chat-ultra .user-message-row {
+  gap: 3px;
+}
+
+/* Chat header: minimal padding */
+.conversation.chat-ultra .conversation-head {
+  padding: 6px 8px 4px;
+}
+
+.conversation.chat-ultra .conversation-head h1 {
+  font-size: 13px;
+}
+
+/* Markdown: reduce code block padding in narrow mode */
+.conversation.chat-narrow .markdown-body pre {
+  padding: 8px 8px;
+  font-size: 11.5px;
+}
+
+.conversation.chat-ultra .markdown-body pre {
+  padding: 6px 6px;
+  font-size: 11px;
+}
+
+.conversation.chat-narrow .markdown-body table {
+  font-size: 11px;
+}
+
+.conversation.chat-ultra .markdown-body table {
+  font-size: 10.5px;
 }

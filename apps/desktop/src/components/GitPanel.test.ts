@@ -14,7 +14,9 @@ vi.mock('vue-i18n', () => ({
 vi.mock('../api', () => ({
   api: {
     executeCodeTool: vi.fn(),
-    createApproval: vi.fn()
+    createApproval: vi.fn(),
+    invokeStream: vi.fn(() => new AbortController()),
+    gitLog: vi.fn(),
   }
 }));
 
@@ -74,8 +76,8 @@ const previewResult: CodeToolExecuteResultDto = {
     ahead: 1,
     behind: 0,
     files: [
-      { path: 'src/app.ts', status: 'modified' },
-      { path: 'README.md', status: 'staged_added' }
+      { path: 'src/app.ts', status: 'M' },
+      { path: 'README.md', status: 'A' }
     ],
     sections: [
       {
@@ -98,28 +100,6 @@ const previewResult: CodeToolExecuteResultDto = {
 @@ -1,2 +1,2 @@
 -old
 +new
-`
-      },
-      {
-        id: 'staged',
-        kind: 'staged',
-        title: 'Staged',
-        subtitle: 'Index changes ready for commit',
-        base_ref: null,
-        head_ref: null,
-        file_count: 1,
-        additions: 1,
-        deletions: 0,
-        notices: [],
-        files: [
-          { path: 'README.md', previous_path: null, change_type: 'added', additions: 1, deletions: 0, binary: false, truncated: false }
-        ],
-        diff: `diff --git a/README.md b/README.md
-new file mode 100644
---- /dev/null
-+++ b/README.md
-@@ -0,0 +1 @@
-+hello
 `
       }
     ]
@@ -156,6 +136,22 @@ const pushPlanResult: CodeToolExecuteResultDto = {
   }
 };
 
+// Stub sub-components to avoid deep rendering Monaco, etc.
+const stubs = {
+  GitChangesView: {
+    name: 'GitChangesView',
+    template: '<div class="stub-git-changes" />',
+  },
+  GitHistoryView: {
+    name: 'GitHistoryView',
+    template: '<div class="stub-git-history" />',
+  },
+  GitBranchView: {
+    name: 'GitBranchView',
+    template: '<div class="stub-git-branch" />',
+  },
+};
+
 function mountGitPanel(approvals: ApprovalDto[] = []) {
   return mount(GitPanel, {
     props: {
@@ -164,19 +160,7 @@ function mountGitPanel(approvals: ApprovalDto[] = []) {
       selectedSessionId: 'session-1'
     },
     global: {
-      stubs: {
-        AlertTriangle: true,
-        CheckCircle2: true,
-        FileCode2: true,
-        GitBranch: true,
-        GitCommitHorizontal: true,
-        GitPullRequest: true,
-        GitCompare: true,
-        RefreshCw: true,
-        ShieldCheck: true,
-        ShieldX: true,
-        Upload: true
-      }
+      stubs,
     }
   });
 }
@@ -196,152 +180,124 @@ describe('GitPanel', () => {
       .mockResolvedValueOnce(pushPlanResult);
   });
 
-  it('loads Git review sections and switches files by section', async () => {
+  it('loads Git status and push plan on mount', async () => {
     const wrapper = mountGitPanel();
     await flushPromises();
 
-    expect(executeCodeTool).toHaveBeenNthCalledWith(1, 'git_worktree_manager', {
+    expect(executeCodeTool).toHaveBeenCalledWith('git_worktree_manager', {
       cwd: 'D:/repo',
       arguments: { action: 'diff_preview', max_files: 120, max_diff_bytes: 180000 }
     });
+    expect(executeCodeTool).toHaveBeenCalledWith('git_worktree_manager', {
+      cwd: 'D:/repo',
+      arguments: { action: 'push_plan' }
+    });
+
+    // Branch name should be rendered in the header
     expect(wrapper.text()).toContain('main');
-    expect(wrapper.text()).toContain('src/app.ts');
-    expect(wrapper.text()).toContain('src/app.ts | 2 +-');
-    expect(wrapper.text()).toContain('origin https://github.com/example/repo.git (fetch)');
-    expect(wrapper.text()).toContain('abc1234 (HEAD -> main) last change');
-    expect(wrapper.text()).toContain('git status --short --branch');
-
-    await wrapper.findAll('.git-section-tab')[1].trigger('click');
-    await nextTick();
-
-    expect(wrapper.text()).toContain('README.md');
-    expect(wrapper.text()).toContain('hello');
   });
 
-  it('creates commit approvals for selected files and emits the approval', async () => {
-    createApproval.mockResolvedValueOnce(pendingCommitApproval);
+  it('renders the branch info and ahead/behind indicators', async () => {
     const wrapper = mountGitPanel();
     await flushPromises();
 
-    await wrapper.find('textarea').setValue('Commit Git panel work');
-    await wrapper.find('.git-commit-approval-button').trigger('click');
-    await flushPromises();
-
-    expect(createApproval).toHaveBeenCalledWith({
-      session_id: 'session-1',
-      kind: 'git',
-      summary: 'Commit 2 files on main',
-      command: 'git add -- src/app.ts README.md && git commit -m "Commit Git panel work"',
-      cwd: 'D:/repo'
-    });
-    expect(wrapper.emitted('approval-created')?.[0]).toEqual([pendingCommitApproval]);
-    expect(wrapper.text()).toContain('context.gitCommitApprovalRequested');
+    expect(wrapper.find('.git-branch-name').text()).toContain('main');
+    expect(wrapper.find('.git-ahead').text()).toContain('1');
   });
 
-  it('creates and executes stage approvals for selected files', async () => {
-    createApproval.mockResolvedValueOnce(pendingStageApproval);
-    executeCodeTool
-      .mockResolvedValueOnce({
-        tool_id: 'git_worktree_manager',
-        status: 'completed',
-        summary: 'Staged 2 paths.',
-        evidence: [],
-        requires_approval: true,
-        approval_summary: null,
-        data: {}
-      })
-      .mockResolvedValueOnce(previewResult)
-      .mockResolvedValueOnce(pushPlanResult);
-
-    const wrapper = mountGitPanel([approvedStageApproval]);
+  it('renders tab navigation with Changes, History, and Branches', async () => {
+    const wrapper = mountGitPanel();
     await flushPromises();
 
-    await wrapper.find('.git-stage-approval-button').trigger('click');
-    await flushPromises();
-
-    expect(createApproval).toHaveBeenCalledWith({
-      session_id: 'session-1',
-      kind: 'git',
-      summary: 'Stage 2 files on main',
-      command: 'git add -- src/app.ts README.md',
-      cwd: 'D:/repo'
-    });
-    expect(wrapper.emitted('approval-created')?.[0]).toEqual([pendingStageApproval]);
-
-    await wrapper.setProps({ approvals: [approvedStageApproval] });
-    await nextTick();
-    await wrapper.find('.git-index-execute-button').trigger('click');
-    await flushPromises();
-
-    expect(executeCodeTool).toHaveBeenCalledWith('git_worktree_manager', {
-      session_id: 'session-1',
-      approval_id: 'approval-stage',
-      cwd: 'D:/repo',
-      arguments: {
-        action: 'stage',
-        confirm_stage: true,
-        paths: ['src/app.ts', 'README.md']
-      }
-    });
+    const navItems = wrapper.findAll('.git-nav-item');
+    expect(navItems.length).toBeGreaterThanOrEqual(3);
+    expect(wrapper.text()).toContain('context.gitTabChanges');
+    expect(wrapper.text()).toContain('context.gitHistory');
+    expect(wrapper.text()).toContain('context.gitBranches');
   });
 
-  it('emits inline decisions for pending Git approvals', async () => {
-    createApproval.mockResolvedValueOnce(pendingCommitApproval);
-    const wrapper = mountGitPanel([pendingCommitApproval]);
+  it('shows the changes badge with file count', async () => {
+    const wrapper = mountGitPanel();
     await flushPromises();
 
-    await wrapper.find('textarea').setValue('Commit Git panel work');
-    await wrapper.find('.git-commit-approval-button').trigger('click');
-    await flushPromises();
-
-    await wrapper.find('.git-approval-inline-actions .approve').trigger('click');
-
-    expect(wrapper.emitted('decide-approval')?.[0]).toEqual([pendingCommitApproval, 'approved']);
+    const badge = wrapper.find('.git-nav-badge');
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toContain('2');
   });
 
-  it('executes approved no-upstream pushes with origin as the default remote', async () => {
-    createApproval.mockResolvedValueOnce(approvedPushApproval);
-    executeCodeTool
-      .mockResolvedValueOnce({
-        tool_id: 'git_worktree_manager',
-        status: 'completed',
-        summary: 'Pushed main.',
-        evidence: [],
-        requires_approval: true,
-        approval_summary: null,
-        data: {}
-      })
-      .mockResolvedValueOnce(previewResult)
-      .mockResolvedValueOnce(pushPlanResult);
-
-    const wrapper = mountGitPanel([approvedPushApproval]);
-    await flushPromises();
-
-    await wrapper.find('.git-push-approval-button').trigger('click');
-    await flushPromises();
-    expect(createApproval).toHaveBeenCalledWith({
-      session_id: 'session-1',
-      kind: 'git',
-      summary: 'Push main to origin (1 ahead)',
-      command: 'git push -u origin main',
-      cwd: 'D:/repo'
+  it('shows empty state when no project path is provided', () => {
+    const wrapper = mount(GitPanel, {
+      props: {
+        approvals: [],
+        currentProjectPath: undefined,
+        selectedSessionId: null,
+      },
+      global: { stubs },
     });
 
-    await wrapper.setProps({ approvals: [approvedPushApproval] });
-    await nextTick();
-    await wrapper.find('.git-push-execute-button').trigger('click');
+    expect(wrapper.find('.git-empty').exists()).toBe(true);
+    expect(wrapper.text()).toContain('context.diffPlaceholder');
+  });
+
+  it('renders the approval disclaimer', async () => {
+    const wrapper = mountGitPanel();
     await flushPromises();
 
-    expect(executeCodeTool).toHaveBeenCalledWith('git_worktree_manager', {
-      session_id: 'session-1',
-      approval_id: 'approval-push',
-      cwd: 'D:/repo',
-      arguments: {
-        action: 'push',
-        confirm_push: true,
-        set_upstream: true,
-        remote: 'origin'
-      }
+    expect(wrapper.find('.git-disclaimer').exists()).toBe(true);
+    expect(wrapper.text()).toContain('context.gitPlanApproval');
+  });
+
+  it('passes correct props to GitChangesView', async () => {
+    const wrapper = mountGitPanel();
+    await flushPromises();
+
+    const changesView = wrapper.findComponent({ name: 'GitChangesView' });
+    expect(changesView.exists()).toBe(true);
+    expect(changesView.props('cwd')).toBe('D:/repo');
+    expect(changesView.props('sessionId')).toBe('session-1');
+    expect(changesView.props('statusFiles')).toHaveLength(2);
+  });
+
+  it('switches to history tab and loads log', async () => {
+    executeCodeTool.mockResolvedValueOnce({
+      tool_id: 'git_worktree_manager',
+      status: 'completed',
+      summary: 'Retrieved 0 commits.',
+      evidence: [],
+      requires_approval: false,
+      approval_summary: null,
+      data: { commits: [] },
     });
+
+    const wrapper = mountGitPanel();
+    await flushPromises();
+
+    // Click history tab
+    const historyTab = wrapper.findAll('.git-nav-item')[1];
+    await historyTab.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'GitHistoryView' }).exists()).toBe(true);
+  });
+
+  it('switches to branches tab', async () => {
+    executeCodeTool.mockResolvedValue({
+      tool_id: 'git_worktree_manager',
+      status: 'completed',
+      summary: 'ok',
+      evidence: [],
+      requires_approval: false,
+      approval_summary: null,
+      data: { worktrees: [] },
+    });
+
+    const wrapper = mountGitPanel();
+    await flushPromises();
+
+    const branchTab = wrapper.findAll('.git-nav-item')[2];
+    await branchTab.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'GitBranchView' }).exists()).toBe(true);
   });
 });
