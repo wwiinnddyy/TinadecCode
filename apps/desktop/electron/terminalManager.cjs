@@ -147,12 +147,20 @@ function getDefaultShell() {
 /**
  * Resolve environment variables for the terminal process.
  * Merges process.env with a clean TERM setting.
+ * Filters out undefined and null values to avoid issues with child_process.spawn.
  * @param {Record<string, string>} extra
  * @returns {Record<string, string>}
  */
 function buildEnv(extra = {}) {
+  const cleanEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && value !== null) {
+      cleanEnv[key] = value;
+    }
+  }
+  
   return {
-    ...process.env,
+    ...cleanEnv,
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     LANG: process.env.LANG || 'en_US.UTF-8',
@@ -174,6 +182,8 @@ function buildEnv(extra = {}) {
  * @returns {{id: string, shell: string, title: string}}
  */
 function createTerminal(options = {}) {
+  console.log('[terminalManager] Creating terminal, usePty:', usePty, 'options:', options);
+  
   const id = options.id || generateId();
   const defaultShell = getDefaultShell();
   const shell = options.shell || defaultShell.shell;
@@ -183,6 +193,8 @@ function createTerminal(options = {}) {
   const rows = options.rows || 24;
   const title = options.title || path.basename(shell);
   const env = buildEnv();
+  
+  console.log('[terminalManager] Terminal config:', { id, shell, args, cwd, cols, rows, title });
 
   /** @type {TerminalEntry} */
   const entry = {
@@ -250,6 +262,8 @@ function createTerminal(options = {}) {
  */
 function createSpawnFallback(entry, shell, args, cwd, cols, rows, env) {
   const isWindows = process.platform === 'win32';
+  console.log('[terminalManager] Creating spawn fallback for:', shell, 'on Windows:', isWindows);
+  
   const child = childProcess.spawn(shell, args, {
     cwd,
     env,
@@ -270,6 +284,7 @@ function createSpawnFallback(entry, shell, args, cwd, cols, rows, env) {
   child.stderr.on('data', onData);
 
   child.on('error', (err) => {
+    console.error('[terminalManager] Spawn error:', err.message);
     notifyData(entry.id, `\r\n\x1b[31mFailed to start process: ${err.message}\x1b[0m\r\n`);
     entry.exited = true;
     notifyExit(entry.id, 1);
@@ -277,12 +292,30 @@ function createSpawnFallback(entry, shell, args, cwd, cols, rows, env) {
   });
 
   child.on('exit', (code, signal) => {
+    console.log('[terminalManager] Spawn exited:', { code, signal });
     entry.exited = true;
     notifyExit(entry.id, code ?? 0, signal ? 1 : undefined);
     terminals.delete(entry.id);
     dataListeners.delete(entry.id);
     exitListeners.delete(entry.id);
   });
+
+  // Windows特定：发送初始化命令显示提示符
+  if (isWindows && child.stdin && !child.stdin.destroyed) {
+    child.stdin.setDefaultEncoding('utf-8');
+    
+    setTimeout(() => {
+      try {
+        if (shell.includes('powershell')) {
+          child.stdin.write('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\r\n');
+        } else if (shell.includes('cmd')) {
+          child.stdin.write('chcp 65001\r\n');
+        }
+      } catch (e) {
+        console.warn('[terminalManager] Init command failed:', e.message);
+      }
+    }, 200);
+  }
 
   // In spawn mode, we don't have real PTY resize support.
   // The terminal will still function for basic I/O.

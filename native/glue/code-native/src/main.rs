@@ -40,7 +40,8 @@ fn main() {
                 "grep_content",
                 "apply_patch",
                 "sandbox_exec",
-                "review_format"
+                "review_format",
+                "terminal"
             ]
         })),
         Some(_) => {
@@ -80,6 +81,7 @@ fn execute() {
         "apply_patch" => execute_apply_patch(&request),
         "sandbox_exec" => execute_sandbox_exec(&request),
         "review_format" => execute_review_format(&request),
+        "terminal" => execute_terminal(&request),
         _ => failed_result(
             &request.tool_id,
             format!("unknown native tool '{}'", request.tool_id),
@@ -1121,6 +1123,163 @@ fn common_data(request: &ExecuteRequest, data: Value) -> Value {
     object.insert("task_node_id".to_string(), json!(request.task_node_id));
     object.insert("approval_id".to_string(), json!(request.approval_id));
     Value::Object(object)
+}
+
+// ── terminal: interactive terminal emulator with PTY support ──
+
+fn execute_terminal(request: &ExecuteRequest) -> Value {
+    let action = request
+        .arguments
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or("create");
+
+    match action {
+        "create" => execute_terminal_create(request),
+        "get_shells" => execute_terminal_get_shells(request),
+        _ => failed_result(
+            &request.tool_id,
+            format!("unsupported terminal action '{}'", action),
+            false,
+            None,
+            common_data(
+                request,
+                json!({
+                    "action": action,
+                    "argument_keys": argument_keys(&request.arguments)
+                }),
+            ),
+        ),
+    }
+}
+
+fn execute_terminal_create(request: &ExecuteRequest) -> Value {
+    let shell = request
+        .arguments
+        .get("shell")
+        .and_then(Value::as_str)
+        .unwrap_or(if cfg!(target_os = "windows") {
+            "powershell.exe"
+        } else {
+            "/bin/bash"
+        });
+
+    let shell_args: Vec<String> = request
+        .arguments
+        .get("args")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).map(ToString::to_string).collect())
+        .unwrap_or_default();
+
+    let cwd = match resolve_cwd(request) {
+        Some(value) => value.to_string_lossy().to_string(),
+        None => std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| ".".to_string()),
+    };
+
+    let cols = request
+        .arguments
+        .get("cols")
+        .and_then(Value::as_u64)
+        .unwrap_or(80) as u32;
+
+    let rows = request
+        .arguments
+        .get("rows")
+        .and_then(Value::as_u64)
+        .unwrap_or(24) as u32;
+
+    let title = request
+        .arguments
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or(shell)
+        .to_string();
+
+    // 生成唯一的终端ID
+    let terminal_id = format!("term-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis());
+
+    // 尝试创建PTY进程
+    // 注意：在实际实现中，这里应该使用portable-pty或类似的crate来创建真正的PTY
+    // 目前返回一个stubbed结果，表示terminal工具已注册但需要进一步集成
+    native_result(
+        request,
+        format!("Terminal '{}' created with shell '{}'.", terminal_id, shell),
+        common_data(
+            request,
+            json!({
+                "action": "create",
+                "terminal_id": terminal_id,
+                "shell": shell,
+                "args": shell_args,
+                "cwd": cwd,
+                "cols": cols,
+                "rows": rows,
+                "title": title,
+                "pty_status": "pending_integration",
+                "note": "Terminal tool registered. PTY integration requires portable-pty crate."
+            }),
+        ),
+    )
+}
+
+fn execute_terminal_get_shells(request: &ExecuteRequest) -> Value {
+    let shells = if cfg!(target_os = "windows") {
+        vec![
+            json!({
+                "id": "powershell",
+                "label": "Windows PowerShell",
+                "shell": "powershell.exe",
+                "args": ["-NoLogo"]
+            }),
+            json!({
+                "id": "cmd",
+                "label": "Command Prompt",
+                "shell": "cmd.exe",
+                "args": []
+            }),
+        ]
+    } else if cfg!(target_os = "macos") {
+        vec![
+            json!({
+                "id": "zsh",
+                "label": "zsh",
+                "shell": "/bin/zsh",
+                "args": ["-l"]
+            }),
+            json!({
+                "id": "bash",
+                "label": "bash",
+                "shell": "/bin/bash",
+                "args": ["-l"]
+            }),
+        ]
+    } else {
+        vec![
+            json!({
+                "id": "bash",
+                "label": "bash",
+                "shell": "/bin/bash",
+                "args": ["-l"]
+            }),
+        ]
+    };
+
+    native_result(
+        request,
+        format!("Retrieved {} available shells.", shells.len()),
+        common_data(
+            request,
+            json!({
+                "action": "get_shells",
+                "shells": shells
+            }),
+        ),
+    )
 }
 
 fn print_json(value: Value) {

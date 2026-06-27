@@ -69,21 +69,35 @@ const terminalAvailable = computed(() => isTerminalAvailable())
 
 // ---- Actions ----
 
+const errorMessage = ref<string | null>(null)
+
 /**
  * Create a new terminal with the given shell profile.
  */
 async function handleNewTerminal(shellId?: string): Promise<void> {
+  errorMessage.value = null
   showShellMenu.value = false
-  await createTerminal({
-    shellId: shellId || (availableShells.value[0]?.id ?? 'default'),
-    cwd: props.cwd,
-    title: availableShells.value.find((s) => s.id === shellId)?.label ?? 'Terminal',
-  })
-  // Fit after creation
-  await nextTick()
-  if (activeTerminalId.value) {
-    fitTerminal(activeTerminalId.value)
-    setTimeout(() => focusTerminal(activeTerminalId.value!), 100)
+  
+  try {
+    const result = await createTerminal({
+      shellId: shellId || (availableShells.value[0]?.id ?? 'default'),
+      cwd: props.cwd,
+      title: availableShells.value.find((s) => s.id === shellId)?.label ?? 'Terminal',
+    })
+    
+    if (!result) {
+      errorMessage.value = t('terminal.createFailed', 'Failed to create terminal')
+      return
+    }
+    
+    // Fit after creation
+    await nextTick()
+    if (activeTerminalId.value) {
+      fitTerminal(activeTerminalId.value)
+      setTimeout(() => focusTerminal(activeTerminalId.value!), 100)
+    }
+  } catch (err) {
+    errorMessage.value = err instanceof Error ? err.message : t('terminal.createFailed', 'Failed to create terminal')
   }
 }
 
@@ -241,6 +255,12 @@ function setTerminalViewRef(id: string, el: InstanceType<typeof TerminalView> | 
 
 <template>
   <div class="terminal-panel">
+    <!-- Error message -->
+    <div v-if="errorMessage" class="terminal-error">
+      <span>{{ errorMessage }}</span>
+      <button @click="errorMessage = null">×</button>
+    </div>
+    
     <!-- Terminal not available (e.g. running in browser) -->
     <div v-if="!terminalAvailable" class="terminal-unavailable">
       <TerminalSquare :size="32" />
@@ -369,6 +389,33 @@ function setTerminalViewRef(id: string, el: InstanceType<typeof TerminalView> | 
   height: 100%;
   background: var(--bg-primary);
   overflow: hidden;
+}
+
+/* ---- Error message ---- */
+.terminal-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-error, #fee2e2);
+  color: var(--text-error, #dc2626);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-error, #fecaca);
+  flex-shrink: 0;
+}
+
+.terminal-error button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.terminal-error button:hover {
+  opacity: 0.7;
 }
 
 /* ---- Tab bar ---- */

@@ -2,6 +2,144 @@
 
 This file is the Claude-specific entry point for AI agents. It intentionally points back to the shared project memory so Claude, Codex, and other agents follow the same architecture rules.
 
+## Project Context
+
+TinadecCode is a Windows-first intelligent agent desktop workbench built around a universal agent harness. It implements a four-layer architecture:
+
+1. **Desktop Layer** (UI Presentation): Electron + Vue 3 + Vite, port 5173
+2. **Gateway Layer** (BFF/API): Elysia TypeScript, port 48730  
+3. **Core Layer** (Agent Orchestration): .NET 10 C#, port 48731
+4. **Native Layer** (Tool Implementation): Rust workspace
+
+The project follows a clear separation of concerns where Core is the only state authority, Gateway is a thin proxy, Desktop is UI-only, and Native provides low-level tool capabilities.
+
+## Development Environment Configuration
+
+### System Requirements
+- Windows 10/11 (23H2 or later)
+- Node.js 18+ and npm
+- .NET 10 SDK
+- Rust toolchain (stable-x86_64-pc-windows-gnullvm)
+- Git
+
+### Dependency Installation
+```powershell
+# Install npm dependencies
+npm install
+
+# Restore .NET dependencies
+npm run restore:dotnet
+
+# Build native tools (optional)
+npm run build:native
+```
+
+### Environment Variables
+The local environment contains `Version=V7.24.42SP3` which breaks MSBuild version parsing. Root npm scripts automatically clear this variable for .NET processes. For direct PowerShell dotnet commands, clear it manually:
+```powershell
+Remove-Item Env:Version -ErrorAction SilentlyContinue
+Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue
+```
+
+### Port Configuration
+- **Desktop (Vite)**: `http://127.0.0.1:5173`
+- **Gateway (Elysia)**: `http://127.0.0.1:48730`
+- **Core (.NET)**: `http://127.0.0.1:48731`
+
+### Key Configuration Files
+- `package.json`: npm workspace configuration
+- `TinadecCode.slnx`: .NET solution file
+- `native/Cargo.toml`: Rust workspace configuration
+- `apps/gateway/package.json`: Gateway dependencies
+- `apps/desktop/package.json`: Desktop dependencies
+
+## Architecture Patterns and Design Principles
+
+### Layered Architecture Pattern
+TinadecCode follows a strict four-layer architecture:
+1. **Presentation Layer** (Desktop): UI rendering and user interaction
+2. **API Gateway Layer** (Gateway): Request routing and proxy
+3. **Business Logic Layer** (Core): Agent orchestration and state management
+4. **Tool Implementation Layer** (Native): Low-level tool execution
+
+### State Management Pattern
+- **Single Source of Truth**: Core is the only state authority
+- **Stateless Layers**: Gateway and Desktop must not store business state
+- **Event Sourcing**: All state changes are recorded as events
+- **Approval Gates**: Write operations require explicit approval
+
+### Tool Execution Pattern
+- **Tool Registration**: Tools are registered through `IToolRegistry` interface
+- **Capability Discovery**: Tools declare their capabilities and risk levels
+- **Policy Enforcement**: Core governs tool execution based on risk policy
+- **Structured Results**: Tools return structured evidence, not raw output
+
+### Approval Gate Mechanism
+- **Read-only Tools**: Can be auto-executed by Core policy
+- **Write Operations**: Must go through approval workflow
+- **Risk Assessment**: Tools are classified by risk level (low, medium, high)
+- **Human Checkpoint**: High-risk operations require human approval
+
+### API Design Principles
+- **snake_case Convention**: All API DTOs use snake_case naming
+- **RESTful Design**: Standard HTTP methods and status codes
+- **SSE Events**: Real-time updates via Server-Sent Events
+- **WebSocket Support**: Debug Studio uses WebSocket for real-time data
+
+## Common Development Tasks
+
+### Adding a New Tool
+1. **Define Tool Interface**: Create tool specification in Core's `ToolRegistryService.cs`
+2. **Implement Tool Logic**: Add tool implementation in appropriate layer (Core, Gateway, or Native)
+3. **Register Tool**: Register tool through `IToolRegistry` interface
+4. **Add Tests**: Create unit tests for tool functionality
+5. **Update Documentation**: Update relevant `AGENTS.md` files
+
+### Modifying Core Layer
+1. **Read Architecture Docs**: Understand Core's role as state authority
+2. **Follow Interface Pattern**: Use interfaces like `IToolRegistry`, `IToolInvocationAdapter`
+3. **Maintain Abstraction**: Keep Core generic and reusable
+4. **Update Contracts**: Update `Tinadec.Contracts` if changing DTOs
+5. **Run Tests**: Execute Core tests before committing
+
+### Modifying Gateway Layer
+1. **Keep Gateway Thin**: Gateway should only proxy requests, not implement business logic
+2. **Use coreClient**: Use `coreClient.ts` for Core communication
+3. **Maintain API Contracts**: Keep API endpoints consistent with Core
+4. **Test Proxy Logic**: Verify request forwarding works correctly
+
+### Modifying Desktop Layer
+1. **UI Only**: Desktop should only handle UI rendering and user interaction
+2. **Call Gateway**: Always call Gateway, never Core directly
+3. **Update DTO Mirrors**: Keep `api.ts` in sync with Core contracts
+4. **Test UI Components**: Use Vitest for component testing
+
+### Testing and Debugging
+1. **Run Full Test Suite**: `npm test`
+2. **Run Core Tests**: `dotnet test tests/TinadecCore.Tests/TinadecCore.Tests.csproj -v minimal`
+3. **Run Gateway Tests**: `npm run test -w @tinadec/gateway`
+4. **Run Desktop Tests**: `npm run test -w @tinadec/desktop`
+5. **Debug Studio**: Use Agent Debug Studio for tracing and debugging
+
+### Common Commands
+```powershell
+# Start development environment
+npm run dev
+
+# Build all components
+npm run build
+
+# Run all tests
+npm test
+
+# Build native tools
+npm run build:native
+
+# Clear environment variables for .NET
+Remove-Item Env:Version -ErrorAction SilentlyContinue
+Remove-Item Env:Ice-Version -ErrorAction SilentlyContinue
+```
+
 ## Start Here
 
 Before making architecture, feature, UI, or tool-layer changes, read in this order:
