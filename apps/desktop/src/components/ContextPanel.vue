@@ -39,6 +39,8 @@ const props = defineProps<{
   agentStates: Record<string, AgentState>
   thinkingSteps: ThinkingStep[]
   progressEvents: ProgressEvent[]
+  panelStyle?: Record<string, string>
+  panelDataAttrs?: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -329,7 +331,8 @@ function startResize(event: MouseEvent) {
     ref="panelRef"
     class="float-panel browser-tabs-panel"
     :class="panelClass"
-    :style="{ width: collapsed ? undefined : `${panelWidth}px` }"
+    :style="{ width: collapsed ? undefined : `${panelWidth}px`, ...panelStyle }"
+    v-bind="panelDataAttrs"
   >
     <!-- Resize handle -->
     <div

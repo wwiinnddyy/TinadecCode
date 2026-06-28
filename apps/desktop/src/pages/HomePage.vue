@@ -9,6 +9,8 @@ import AppHeader from '../components/AppHeader.vue'
 import ChatPanel from '../components/ChatPanel.vue'
 import ContextPanel from '../components/ContextPanel.vue'
 import { useAgentActivity } from '@/composables/useAgentActivity'
+import { useBackground } from '@/composables/useBackground'
+import { usePanelStyles } from '@/composables/usePanelStyles'
 import type { AgentMode, PermissionLevel } from '../types/mode'
 
 const router = useRouter()
@@ -56,6 +58,43 @@ const {
 } = useAgentActivity(sessionIdRef, orchestration)
 
 const agentLabel = computed(() => agentActivity.value.activeAgentName ?? null)
+
+// ---- Background customization ----
+const {
+  settings: backgroundSettings,
+} = useBackground()
+
+// ---- Panel styles ----
+const {
+  panelStyles,
+  getPanelStyle,
+  getPanelDataAttributes,
+} = usePanelStyles()
+
+// Compute background style for the shell
+const backgroundStyle = computed(() => {
+  if (backgroundSettings.value.type === 'none') {
+    return {}
+  }
+  
+  const style: Record<string, string> = {
+    position: 'relative',
+  }
+  
+  return style
+})
+
+// Compute sidebar style
+const sidebarStyle = computed(() => getPanelStyle('sidebar'))
+const sidebarDataAttrs = computed(() => getPanelDataAttributes('sidebar'))
+
+// Compute chat panel style
+const chatPanelStyle = computed(() => getPanelStyle('chatPanel'))
+const chatPanelDataAttrs = computed(() => getPanelDataAttributes('chatPanel'))
+
+// Compute context panel style
+const contextPanelStyle = computed(() => getPanelStyle('contextPanel'))
+const contextPanelDataAttrs = computed(() => getPanelDataAttributes('contextPanel'))
 
 function generateTitle(content: string): string {
   const trimmed = content.trim()
@@ -279,7 +318,49 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="shell">
+  <main class="shell" :style="backgroundStyle">
+    <!-- Background Layer -->
+    <div v-if="backgroundSettings.type !== 'none'" class="background-layer">
+      <!-- Image Background -->
+      <div
+        v-if="backgroundSettings.type === 'image'"
+        class="background-image"
+        :style="{
+          backgroundImage: backgroundSettings.source ? `url('${backgroundSettings.source}')` : 'none',
+          backgroundSize: backgroundSettings.size,
+          backgroundPosition: backgroundSettings.position,
+          backgroundRepeat: backgroundSettings.repeat,
+          opacity: backgroundSettings.opacity / 100,
+          filter: backgroundSettings.blur > 0 ? `blur(${backgroundSettings.blur}px)` : 'none',
+        }"
+      />
+      
+      <!-- Video Background -->
+      <video
+        v-else-if="backgroundSettings.type === 'video' && backgroundSettings.source"
+        class="background-video"
+        :src="backgroundSettings.source"
+        autoplay
+        loop
+        muted
+        :style="{
+          opacity: backgroundSettings.opacity / 100,
+          filter: backgroundSettings.blur > 0 ? `blur(${backgroundSettings.blur}px)` : 'none',
+        }"
+      />
+      
+      <!-- HTML Background -->
+      <div
+        v-else-if="backgroundSettings.type === 'html' && backgroundSettings.source"
+        class="background-html"
+        v-html="backgroundSettings.source"
+        :style="{
+          opacity: backgroundSettings.opacity / 100,
+          filter: backgroundSettings.blur > 0 ? `blur(${backgroundSettings.blur}px)` : 'none',
+        }"
+      />
+    </div>
+
     <AppHeader :busy="busy" />
 
     <section v-if="error" class="error-strip">{{ error }}</section>
@@ -308,6 +389,8 @@ onUnmounted(() => {
         :thinking-steps="agentThinkingSteps"
         :tool-calls="agentToolCalls"
         :agent-label="agentLabel"
+        :panel-style="chatPanelStyle"
+        :panel-data-attrs="chatPanelDataAttrs"
         @update:draft="draft = $event"
         @update:mode="currentMode = $event"
         @update:permission="currentPermission = $event"
@@ -323,6 +406,8 @@ onUnmounted(() => {
         :selected-project-id="selectedProjectId"
         :selected-session-id="selectedSessionId"
         :busy="busy"
+        :panel-style="sidebarStyle"
+        :panel-data-attrs="sidebarDataAttrs"
         @select-project="selectedProjectId = $event"
         @select-session="selectedSessionId = $event"
         @create-session="createSession"
@@ -348,6 +433,8 @@ onUnmounted(() => {
         :agent-states="agentStatesMap"
         :thinking-steps="agentThinkingSteps"
         :progress-events="agentProgressEvents"
+        :panel-style="contextPanelStyle"
+        :panel-data-attrs="contextPanelDataAttrs"
         @request-approval="requestShellApproval"
         @decide-approval="decideApproval"
         @approval-created="recordApproval"

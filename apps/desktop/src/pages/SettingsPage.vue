@@ -82,6 +82,10 @@ import { UiButton, UiInput, UiCard, UiBadge, UiLabel, UiSwitch } from '@/compone
 import AgentTopologyCanvas from '@/components/AgentTopologyCanvas.vue'
 import AgentEvolutionPanel from '@/components/AgentEvolutionPanel.vue'
 import PromptEngineeringPanel from '@/components/PromptEngineeringPanel.vue'
+import BackgroundPreview from '@/components/ui/background-preview.vue'
+import PanelStyleControl from '@/components/ui/panel-style-control.vue'
+import { useBackground } from '@/composables/useBackground'
+import { usePanelStyles } from '@/composables/usePanelStyles'
 
 type SettingsSection = 'model' | 'agents' | 'agentEvolution' | 'promptContext' | 'promptEngineering' | 'tools' | 'appearance' | 'language' | 'apiDocs' | 'about'
 
@@ -111,6 +115,27 @@ const CATEGORY_ICONS: Record<ProviderCategory, typeof Cloud> = {
 const { t, locale } = useI18n()
 const router = useRouter()
 const { theme, setTheme, accentColor, setAccentColor, accentColors } = useTheme()
+
+// Background management
+const {
+  settings: backgroundSettings,
+  setBackgroundType,
+  setBackgroundSource,
+  setBackgroundOpacity,
+  setBackgroundBlur,
+  setBackgroundSize,
+  setBackgroundPosition,
+  setBackgroundRepeat,
+  selectFile: selectBackgroundFile,
+  resetBackground,
+} = useBackground()
+
+// Panel styles management
+const {
+  panelStyles,
+  updatePanelStyle,
+  resetAllPanelStyles,
+} = usePanelStyles()
 
 /** Wrapper that also broadcasts theme changes to detached panel windows */
 function changeTheme(newTheme: 'dark' | 'light' | 'system') {
@@ -2142,6 +2167,191 @@ loadPromptContextCenter()
               <span class="accent-color-label">{{ t(color.labelKey) }}</span>
               <Check v-if="accentColor === color.key" :size="14" class="accent-color-check" />
             </button>
+          </div>
+          
+          <!-- Panel Styles Section -->
+          <h3>{{ t('settings.panelStyles') }}</h3>
+          <p class="accent-color-hint">{{ t('settings.panelStylesHint') }}</p>
+          <div class="panel-styles-grid">
+            <PanelStyleControl
+              :label="t('settings.sidebar')"
+              :settings="panelStyles.sidebar"
+              @update="updatePanelStyle('sidebar', $event)"
+            />
+            <PanelStyleControl
+              :label="t('settings.chatPanel')"
+              :settings="panelStyles.chatPanel"
+              @update="updatePanelStyle('chatPanel', $event)"
+            />
+            <PanelStyleControl
+              :label="t('settings.contextPanel')"
+              :settings="panelStyles.contextPanel"
+              @update="updatePanelStyle('contextPanel', $event)"
+            />
+          </div>
+          <div class="panel-styles-actions">
+            <UiButton variant="outline" size="sm" @click="resetAllPanelStyles">
+              {{ t('settings.resetPanelStyles') }}
+            </UiButton>
+          </div>
+        </template>
+
+        <!-- Background Settings Section -->
+        <template v-if="activeSection === 'appearance'">
+          <h2>{{ t('settings.background') }}</h2>
+          
+          <!-- Background Type Selection -->
+          <h3>{{ t('settings.backgroundType') }}</h3>
+          <div class="background-type-options">
+            <button
+              :class="['bg-type-option', { active: backgroundSettings.type === 'none' }]"
+              @click="setBackgroundType('none')"
+            >
+              {{ t('settings.bgNone') }}
+            </button>
+            <button
+              :class="['bg-type-option', { active: backgroundSettings.type === 'image' }]"
+              @click="setBackgroundType('image')"
+            >
+              {{ t('settings.bgImage') }}
+            </button>
+            <button
+              :class="['bg-type-option', { active: backgroundSettings.type === 'video' }]"
+              @click="setBackgroundType('video')"
+            >
+              {{ t('settings.bgVideo') }}
+            </button>
+            <button
+              :class="['bg-type-option', { active: backgroundSettings.type === 'html' }]"
+              @click="setBackgroundType('html')"
+            >
+              {{ t('settings.bgHtml') }}
+            </button>
+          </div>
+          
+          <!-- File/URL Input (for image and video) -->
+          <div v-if="backgroundSettings.type !== 'none'" class="background-source-section">
+            <h3>{{ t('settings.backgroundSource') }}</h3>
+            <div class="source-input-row">
+              <UiInput
+                v-model="backgroundSettings.source"
+                :placeholder="t('settings.bgSourcePlaceholder')"
+                class="source-input"
+              />
+              <UiButton
+                v-if="backgroundSettings.type === 'image' || backgroundSettings.type === 'video'"
+                variant="outline"
+                @click="selectBackgroundFile"
+              >
+                {{ t('settings.browse') }}
+              </UiButton>
+            </div>
+            <p v-if="backgroundSettings.type === 'image'" class="source-hint">
+              {{ t('settings.bgImageFormats') }}
+            </p>
+            <p v-else-if="backgroundSettings.type === 'video'" class="source-hint">
+              {{ t('settings.bgVideoFormats') }}
+            </p>
+            <p v-else-if="backgroundSettings.type === 'html'" class="source-hint">
+              {{ t('settings.bgHtmlHint') }}
+            </p>
+          </div>
+          
+          <!-- Background Parameters -->
+          <div v-if="backgroundSettings.type !== 'none'" class="background-params-section">
+            <h3>{{ t('settings.backgroundParams') }}</h3>
+            
+            <!-- Opacity -->
+            <div class="param-row">
+              <label class="param-label">{{ t('settings.opacity') }}</label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                :value="backgroundSettings.opacity"
+                class="param-slider"
+                @input="setBackgroundOpacity(parseInt(($event.target as HTMLInputElement).value))"
+              />
+              <span class="param-value">{{ backgroundSettings.opacity }}%</span>
+            </div>
+            
+            <!-- Blur -->
+            <div class="param-row">
+              <label class="param-label">{{ t('settings.blur') }}</label>
+              <input
+                type="range"
+                min="0"
+                max="20"
+                :value="backgroundSettings.blur"
+                class="param-slider"
+                @input="setBackgroundBlur(parseInt(($event.target as HTMLInputElement).value))"
+              />
+              <span class="param-value">{{ backgroundSettings.blur }}px</span>
+            </div>
+            
+            <!-- Size -->
+            <div v-if="backgroundSettings.type === 'image'" class="param-row">
+              <label class="param-label">{{ t('settings.bgSize') }}</label>
+              <select
+                :value="backgroundSettings.size"
+                class="param-select"
+                @change="setBackgroundSize(($event.target as HTMLSelectElement).value as any)"
+              >
+                <option value="cover">{{ t('settings.bgSizeCover') }}</option>
+                <option value="contain">{{ t('settings.bgSizeContain') }}</option>
+                <option value="auto">{{ t('settings.bgSizeAuto') }}</option>
+              </select>
+            </div>
+            
+            <!-- Position (for image) -->
+            <div v-if="backgroundSettings.type === 'image'" class="param-row">
+              <label class="param-label">{{ t('settings.bgPosition') }}</label>
+              <select
+                :value="backgroundSettings.position"
+                class="param-select"
+                @change="setBackgroundPosition(($event.target as HTMLSelectElement).value as any)"
+              >
+                <option value="center">{{ t('settings.bgPositionCenter') }}</option>
+                <option value="top">{{ t('settings.bgPositionTop') }}</option>
+                <option value="bottom">{{ t('settings.bgPositionBottom') }}</option>
+                <option value="left">{{ t('settings.bgPositionLeft') }}</option>
+                <option value="right">{{ t('settings.bgPositionRight') }}</option>
+              </select>
+            </div>
+            
+            <!-- Repeat (for image) -->
+            <div v-if="backgroundSettings.type === 'image'" class="param-row">
+              <label class="param-label">{{ t('settings.bgRepeat') }}</label>
+              <select
+                :value="backgroundSettings.repeat"
+                class="param-select"
+                @change="setBackgroundRepeat(($event.target as HTMLSelectElement).value as any)"
+              >
+                <option value="no-repeat">{{ t('settings.bgRepeatNoRepeat') }}</option>
+                <option value="repeat">{{ t('settings.bgRepeatRepeat') }}</option>
+                <option value="repeat-x">{{ t('settings.bgRepeatRepeatX') }}</option>
+                <option value="repeat-y">{{ t('settings.bgRepeatRepeatY') }}</option>
+              </select>
+            </div>
+          </div>
+          
+          <!-- Background Preview -->
+          <div v-if="backgroundSettings.type !== 'none'" class="background-preview-section">
+            <h3>{{ t('settings.preview') }}</h3>
+            <BackgroundPreview :settings="backgroundSettings" :height="150" />
+          </div>
+          
+          <!-- Reset Button -->
+          <div class="background-actions">
+            <UiButton variant="outline" size="sm" @click="resetBackground">
+              {{ t('settings.resetBackground') }}
+            </UiButton>
+          </div>
+          
+          <!-- Performance Warning -->
+          <div v-if="backgroundSettings.type !== 'none'" class="performance-warning">
+            <Info :size="14" />
+            <span>{{ t('settings.bgPerformanceWarning') }}</span>
           </div>
         </template>
 

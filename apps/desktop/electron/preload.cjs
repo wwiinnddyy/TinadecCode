@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('tinadec', {
   maximizeWindow: () => ipcRenderer.send('tinadec:maximize'),
   closeWindow: () => ipcRenderer.send('tinadec:close'),
   openDebugStudio: () => ipcRenderer.invoke('tinadec:open-debug-studio'),
+  
+  // --- Background File Selection API ---
+  selectBackgroundFile: (type) => ipcRenderer.invoke('tinadec:select-background-file', type),
 
   // --- Terminal API ---
   terminal: {

@@ -26,6 +26,8 @@ const props = defineProps<{
   thinkingSteps?: ThinkingStep[]
   toolCalls?: ToolCall[]
   agentLabel?: string | null
+  panelStyle?: Record<string, string>
+  panelDataAttrs?: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -59,7 +61,7 @@ function handleReject(approvalId: string) {
 </script>
 
 <template>
-  <section ref="conversationRef" class="conversation" :class="conversationClass">
+  <section ref="conversationRef" class="conversation" :class="conversationClass" :style="panelStyle" v-bind="panelDataAttrs">
     <Transition name="chat-panel" mode="out-in">
       <template v-if="messages.length === 0">
         <WelcomeScreen

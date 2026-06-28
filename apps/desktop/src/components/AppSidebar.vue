@@ -23,6 +23,8 @@ const props = defineProps<{
   selectedProjectId: string | null
   selectedSessionId: string | null
   busy: boolean
+  panelStyle?: Record<string, string>
+  panelDataAttrs?: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -94,7 +96,7 @@ function openDebugStudio() {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :style="panelStyle" v-bind="panelDataAttrs">
     <div class="sidebar-topbar">
       <div class="brand">
         <Diamond :size="18" />

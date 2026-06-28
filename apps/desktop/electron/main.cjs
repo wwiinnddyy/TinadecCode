@@ -104,6 +104,45 @@ ipcMain.handle('tinadec:open-debug-studio', async () => {
   return true;
 });
 
+// --- Background File Selection IPC ---
+ipcMain.handle('tinadec:select-background-file', async (event, type) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return null;
+  
+  let filters = [];
+  
+  switch (type) {
+    case 'image':
+      filters = [
+        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'] },
+        { name: 'All Files', extensions: ['*'] }
+      ];
+      break;
+    case 'video':
+      filters = [
+        { name: 'Videos', extensions: ['mp4', 'webm', 'ogg', 'mov', 'avi'] },
+        { name: 'All Files', extensions: ['*'] }
+      ];
+      break;
+    default:
+      filters = [
+        { name: 'All Files', extensions: ['*'] }
+      ];
+  }
+  
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    title: 'Select Background File',
+    filters: filters
+  });
+  
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  
+  return result.filePaths[0];
+});
+
 // --- Detached Panel Window IPC ---
 
 // Detach a tab into a new floating window
