@@ -445,7 +445,6 @@ internal class FileAccessor : IDisposable
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        // 验证范围
         if (startLine < 0 || startLine >= index.Count)
             throw new ArgumentOutOfRangeException(nameof(startLine), $"起始行号 {startLine} 超出范围 [0, {index.Count})");
 
@@ -466,39 +465,63 @@ internal class FileAccessor : IDisposable
                 throw new ArgumentException($"内容行 {startLine + i} 包含换行符", nameof(content));
         }
 
-        var rangeStart = index[startLine].LineStart;
-        var rangeEndExclusive = index[endLine].NextStart;
-        var currentLength = rangeEndExclusive - rangeStart;
-        var hasTrailingNewline = index[endLine].NextStart > index[endLine].LineEnd;
+        var startSpan = index[startLine];
+        var endSpan = index[endLine];
+        var replacementBytes = encodeLinesToUtf8Bytes(content, endSpan.NextStart > endSpan.LineEnd);
 
-        var replacementLength = content
-            .Sum(line => Encoding.UTF8.GetByteCount(line))
-            + Math.Max(0, content.Count - 1)
-            + (hasTrailingNewline ? 1 : 0);
-
-        if (replacementLength == currentLength)
-        {
-            await writeReplacementInPlaceAsync(rangeStart, content, hasTrailingNewline);
-        }
-        else
-        {
-            await rewriteFileWithReplacementAsync(rangeStart, rangeEndExclusive, content, hasTrailingNewline);
-        }
-
-        buildIndex();
-        return true;
+        return await ReplaceBytes(startSpan.LineStart, endSpan.NextStart - startSpan.LineStart, replacementBytes);
     }
 
-    private async Task writeReplacementInPlaceAsync(long offset, IReadOnlyList<string> content, bool hasTrailingNewline)
+    private LineSpan getLineSpanOrThrow(int lineNumber)
     {
-        file.Seek(offset, SeekOrigin.Begin);
-        await using var writer = new StreamWriter(file, utf8_no_bom, stream_buffer_size, leaveOpen: true);
-        await writeReplacementSectionAsync(writer, content, hasTrailingNewline);
-        await writer.FlushAsync();
-        file.Seek(0, SeekOrigin.End);
+        if (lineNumber < 0 || lineNumber >= index.Count)
+            throw new ArgumentOutOfRangeException(nameof(lineNumber), $"行号 {lineNumber} 超出范围 [0, {index.Count})");
+
+        return index[lineNumber];
     }
 
-    private async Task rewriteFileWithReplacementAsync(long rangeStart, long rangeEndExclusive, IReadOnlyList<string> content, bool hasTrailingNewline)
+    private static ReadOnlyMemory<byte> encodeLinesToUtf8Bytes(IReadOnlyList<string> lines, bool trailingNewline)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        if (lines.Count == 0)
+            return ReadOnlyMemory<byte>.Empty;
+
+        using var memoryStream = new MemoryStream();
+        using (var writer = new StreamWriter(memoryStream, utf8_no_bom, stream_buffer_size, leaveOpen: true))
+        {
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line is null)
+                    throw new ArgumentNullException(nameof(lines));
+
+                if (line.Contains('\n') || line.Contains('\r'))
+                    throw new ArgumentException($"内容行 {i} 包含换行符", nameof(lines));
+
+                writer.Write(line);
+
+                if (i < lines.Count - 1 || trailingNewline)
+                    writer.Write('\n');
+            }
+
+            writer.Flush();
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private async Task overwriteBytesInPlaceAsync(long offset, ReadOnlyMemory<byte> replacement)
+    {
+        if (replacement.Length == 0)
+            return;
+
+        file.Seek(offset, SeekOrigin.Begin);
+        await file.WriteAsync(replacement, CancellationToken.None);
+        await file.FlushAsync(CancellationToken.None);
+        file.Seek(0, SeekOrigin.Begin);
+    }
+
+    private async Task rewriteFileWithSegmentAsync(long removeOffset, long removeLength, ReadOnlyMemory<byte> replacement)
     {
         var originalLength = file.Length;
         var tempPath = getTempPath();
@@ -508,13 +531,10 @@ internal class FileAccessor : IDisposable
             await using (var tempOutput = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 stream_buffer_size, FileOptions.SequentialScan))
             {
-                await copyRangeToStreamAsync(tempOutput, 0, rangeStart);
-                await using (var writer = new StreamWriter(tempOutput, utf8_no_bom, stream_buffer_size, leaveOpen: true))
-                {
-                    await writeReplacementSectionAsync(writer, content, hasTrailingNewline);
-                    await writer.FlushAsync();
-                }
-                await copyRangeToStreamAsync(tempOutput, rangeEndExclusive, originalLength - rangeEndExclusive);
+                await copyRangeToStreamAsync(tempOutput, 0, removeOffset);
+                if (!replacement.IsEmpty)
+                    await tempOutput.WriteAsync(replacement, CancellationToken.None);
+                await copyRangeToStreamAsync(tempOutput, removeOffset + removeLength, originalLength - (removeOffset + removeLength));
                 await tempOutput.FlushAsync();
             }
 
@@ -538,17 +558,6 @@ internal class FileAccessor : IDisposable
             }
 
             file.Seek(0, SeekOrigin.Begin);
-        }
-    }
-
-    private async Task writeReplacementSectionAsync(StreamWriter writer, IReadOnlyList<string> content, bool hasTrailingNewline)
-    {
-        for (var i = 0; i < content.Count; i++)
-        {
-            await writer.WriteAsync(content[i]);
-
-            if (i < content.Count - 1 || hasTrailingNewline)
-                await writer.WriteAsync("\n");
         }
     }
 
