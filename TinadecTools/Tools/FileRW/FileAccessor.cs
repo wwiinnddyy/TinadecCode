@@ -324,6 +324,118 @@ internal class FileAccessor : IDisposable
     }
 
     /// <summary>
+    /// 按字节偏移替换一段内容，替换后的长度可以与原长度不同。
+    /// </summary>
+    /// <param name="byteOffset">起始字节偏移</param>
+    /// <param name="byteCount">要被替换掉的原始字节数</param>
+    /// <param name="replacement">替换内容</param>
+    public async Task<bool> ReplaceBytes(long byteOffset, long byteCount, ReadOnlyMemory<byte> replacement)
+    {
+        if (byteOffset < 0 || byteOffset > file.Length)
+            throw new ArgumentOutOfRangeException(nameof(byteOffset), $"字节偏移 {byteOffset} 超出范围 [0, {file.Length}]");
+
+        if (byteCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(byteCount), "字节数量不能小于 0");
+
+        if (byteCount > file.Length - byteOffset)
+            throw new ArgumentOutOfRangeException(nameof(byteCount), $"字节数量 {byteCount} 超出范围，无法从偏移 {byteOffset} 开始替换");
+
+        if (byteCount == 0 && replacement.Length == 0)
+            return true;
+
+        if (byteCount == replacement.Length)
+        {
+            await overwriteBytesInPlaceAsync(byteOffset, replacement);
+        }
+        else
+        {
+            await rewriteFileWithSegmentAsync(byteOffset, byteCount, replacement);
+        }
+
+        buildIndex();
+        return true;
+    }
+
+    /// <summary>
+    /// 删除指定字节段。
+    /// </summary>
+    public Task<bool> DeleteBytes(long byteOffset, long byteCount)
+        => ReplaceBytes(byteOffset, byteCount, ReadOnlyMemory<byte>.Empty);
+
+    /// <summary>
+    /// 在指定字节偏移插入内容。
+    /// </summary>
+    public Task<bool> InsertBytes(long byteOffset, ReadOnlyMemory<byte> insertion)
+        => ReplaceBytes(byteOffset, 0, insertion);
+
+    /// <summary>
+    /// 删除单行。
+    /// </summary>
+    public Task<bool> DeleteLine(int lineNumber)
+        => DeleteLines(lineNumber, lineNumber);
+
+    /// <summary>
+    /// 删除连续多行。
+    /// </summary>
+    public Task<bool> DeleteLines(int startLine, int endLine)
+    {
+        var startSpan = getLineSpanOrThrow(startLine);
+        var endSpan = getLineSpanOrThrow(endLine);
+
+        if (startLine > endLine)
+            throw new ArgumentException($"起始行号 {startLine} 不能大于结束行号 {endLine}");
+
+        return ReplaceBytes(startSpan.LineStart, endSpan.NextStart - startSpan.LineStart, ReadOnlyMemory<byte>.Empty);
+    }
+
+    /// <summary>
+    /// 在指定行后插入字节。
+    /// </summary>
+    public Task<bool> InsertBytesAfterLine(int lineNumber, ReadOnlyMemory<byte> insertion)
+        => InsertBytes(getLineSpanOrThrow(lineNumber).NextStart, insertion);
+
+    /// <summary>
+    /// 在指定行前插入字节。
+    /// </summary>
+    public Task<bool> InsertBytesBeforeLine(int lineNumber, ReadOnlyMemory<byte> insertion)
+        => InsertBytes(getLineSpanOrThrow(lineNumber).LineStart, insertion);
+
+    /// <summary>
+    /// 在指定行后插入若干行。
+    /// </summary>
+    public Task<bool> InsertLinesAfterLine(int lineNumber, IReadOnlyList<string> lines)
+        => InsertBytesAfterLine(lineNumber, encodeLinesToUtf8Bytes(lines, true));
+
+    /// <summary>
+    /// 在指定行前插入若干行。
+    /// </summary>
+    public Task<bool> InsertLinesBeforeLine(int lineNumber, IReadOnlyList<string> lines)
+        => InsertBytesBeforeLine(lineNumber, encodeLinesToUtf8Bytes(lines, true));
+
+    /// <summary>
+    /// 在两行之间插入字节。
+    /// </summary>
+    public Task<bool> InsertBytesBetweenLines(int upperLineNumber, int lowerLineNumber, ReadOnlyMemory<byte> insertion)
+    {
+        if (upperLineNumber < 0 || upperLineNumber >= index.Count)
+            throw new ArgumentOutOfRangeException(nameof(upperLineNumber), $"行号 {upperLineNumber} 超出范围 [0, {index.Count})");
+
+        if (lowerLineNumber < 0 || lowerLineNumber >= index.Count)
+            throw new ArgumentOutOfRangeException(nameof(lowerLineNumber), $"行号 {lowerLineNumber} 超出范围 [0, {index.Count})");
+
+        if (upperLineNumber >= lowerLineNumber)
+            throw new ArgumentException($"上边行号 {upperLineNumber} 必须小于下边行号 {lowerLineNumber}");
+
+        return InsertBytes(index[upperLineNumber].NextStart, insertion);
+    }
+
+    /// <summary>
+    /// 在两行之间插入若干行。
+    /// </summary>
+    public Task<bool> InsertLinesBetweenLines(int upperLineNumber, int lowerLineNumber, IReadOnlyList<string> lines)
+        => InsertBytesBetweenLines(upperLineNumber, lowerLineNumber, encodeLinesToUtf8Bytes(lines, true));
+
+    /// <summary>
     /// 替换单个连续范围的行（写入后全量重建索引）
     /// </summary>
     /// <param name="startLine">起始行号（包括）</param>
