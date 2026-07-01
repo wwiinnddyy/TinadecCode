@@ -4478,14 +4478,24 @@ box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.36), var(--shadow-subtle);
 }
 
 .settings-page {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-  position: relative;
-  /* Transparent so window rounded corners show through. */
-  background: var(--bg-primary);
-  border-radius: 12px;
+display: flex;
+flex-direction: column;
+height: 100vh;
+overflow: hidden;
+position: relative;
+/* Solid background by default; transparent when background customization
+   is active (same layered architecture as HomePage). */
+background: var(--bg-primary);
+border-radius: 12px;
+z-index: 1;
+}
+
+/* When background customization is active, settings page becomes transparent
+   so the background-layer (z-index: 0) shows through. */
+html[data-bg-type="image"] .settings-page,
+html[data-bg-type="video"] .settings-page,
+html[data-bg-type="html"] .settings-page {
+background: transparent;
 }
 
 .settings-window-controls {
@@ -4508,18 +4518,16 @@ box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.36), var(--shadow-subtle);
 .settings-shell {
 display: grid;
 grid-template-columns: 220px 1fr;
-gap: 0;
+gap: 8px;
 flex: 1;
 min-height: 0;
 padding: 8px;
-padding-left: 0;
 overflow: hidden;
 }
 
 .settings-nav {
 position: relative;
 padding: 16px 12px;
-margin: 0 8px 0 0;
 background: var(--bg-secondary);
 border-radius: 12px;
 border: 1px solid var(--border-muted);
@@ -4569,6 +4577,10 @@ overflow: auto;
 .settings-content {
 padding: 24px 32px;
 overflow: auto;
+background: var(--bg-secondary);
+border-radius: 12px;
+border: 1px solid var(--border-muted);
+box-shadow: var(--shadow-panel);
 }
 
 .settings-content h2 {
@@ -6110,12 +6122,18 @@ box-shadow: var(--shadow-panel);
 /* Settings nav inner elements */
 .settings-nav[data-panel-effect="translucent"],
 .settings-nav[data-panel-effect="blur"] {
-  border-color: transparent;
+border-color: transparent;
 }
 
 .settings-nav[data-panel-effect="translucent"] .settings-nav-header,
 .settings-nav[data-panel-effect="blur"] .settings-nav-header {
-  background: transparent;
+background: transparent;
+}
+
+/* Settings content panel inner elements */
+.settings-content[data-panel-effect="translucent"],
+.settings-content[data-panel-effect="blur"] {
+border-color: transparent;
 }
 
 /* Context panel (float-panel) inner elements */

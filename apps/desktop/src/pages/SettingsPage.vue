@@ -36,7 +36,7 @@ import {
   Workflow,
   X
 } from '@lucide/vue'
-import { computed, nextTick, reactive, ref } from 'vue' 
+import { computed, nextTick, reactive, ref, watch } from 'vue' 
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
@@ -119,6 +119,7 @@ const { theme, setTheme, accentColor, setAccentColor, accentColors } = useTheme(
 // Background management
 const {
   settings: backgroundSettings,
+  applyBackground,
   setBackgroundType,
   setBackgroundSource,
   setBackgroundOpacity,
@@ -129,6 +130,11 @@ const {
   selectFile: selectBackgroundFile,
   resetBackground,
 } = useBackground()
+
+// Apply data-bg-type attribute when background settings change
+watch(backgroundSettings, () => {
+  applyBackground()
+}, { deep: true, immediate: true })
 
 // Computed source with getter/setter to ensure path normalization on manual input
 const backgroundSource = computed({
@@ -148,6 +154,10 @@ getPanelDataAttributes,
 // Apply global material to settings nav
 const settingsNavStyle = computed(() => getPanelStyle())
 const settingsNavDataAttrs = computed(() => getPanelDataAttributes())
+
+// Apply global material to settings content panel
+const settingsContentStyle = computed(() => getPanelStyle())
+const settingsContentDataAttrs = computed(() => getPanelDataAttributes())
 
 /** Wrapper that also broadcasts theme changes to detached panel windows */
 function changeTheme(newTheme: 'dark' | 'light' | 'system') {
@@ -939,6 +949,48 @@ loadPromptContextCenter()
 
 <template>
 <div class="settings-page">
+<!-- Background Layer (same architecture as HomePage) -->
+<div v-if="backgroundSettings.type !== 'none'" class="background-layer">
+  <!-- Image Background -->
+  <div
+    v-if="backgroundSettings.type === 'image'"
+    class="background-image"
+    :style="{
+      backgroundImage: backgroundSettings.source ? `url('${backgroundSettings.source}')` : 'none',
+      backgroundSize: backgroundSettings.size,
+      backgroundPosition: backgroundSettings.position,
+      backgroundRepeat: backgroundSettings.repeat,
+      opacity: backgroundSettings.opacity / 100,
+      filter: backgroundSettings.blur > 0 ? `blur(${backgroundSettings.blur}px)` : 'none',
+    }"
+  />
+  
+  <!-- Video Background -->
+  <video
+    v-else-if="backgroundSettings.type === 'video' && backgroundSettings.source"
+    class="background-video"
+    :src="backgroundSettings.source"
+    autoplay
+    loop
+    muted
+    :style="{
+      opacity: backgroundSettings.opacity / 100,
+      filter: backgroundSettings.blur > 0 ? `blur(${backgroundSettings.blur}px)` : 'none',
+    }"
+  />
+  
+  <!-- HTML Background -->
+  <div
+    v-else-if="backgroundSettings.type === 'html' && backgroundSettings.source"
+    class="background-html"
+    v-html="backgroundSettings.source"
+    :style="{
+      opacity: backgroundSettings.opacity / 100,
+      filter: backgroundSettings.blur > 0 ? `blur(${backgroundSettings.blur}px)` : 'none',
+    }"
+  />
+</div>
+
 <!-- Full-width draggable bar for window dragging -->
 <div class="top-drag-bar" />
 <div class="settings-window-controls">
@@ -974,7 +1026,7 @@ loadPromptContextCenter()
         </UiButton>
       </nav>
 
-      <div class="settings-content">
+      <div class="settings-content" :style="settingsContentStyle" v-bind="settingsContentDataAttrs">
         <template v-if="activeSection === 'model'">
           <div class="model-center-heading">
             <div>
